@@ -26,9 +26,12 @@ service cloud.firestore {
       allow read: if isSignedIn();
 
       allow create: if isSignedIn()
-        && request.auth.uid == userId
         && validRole(request.resource.data.role)
-        && request.resource.data.keys().hasAll(['name', 'email', 'role', 'active', 'createdAt']);
+        && request.resource.data.keys().hasAll(['name', 'email', 'role', 'active', 'createdAt'])
+        && (
+          request.auth.uid == userId
+          || isSuperAdmin()
+        );
 
       allow update: if isSuperAdmin()
         || (

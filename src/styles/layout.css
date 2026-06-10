@@ -1122,6 +1122,20 @@
   accent-color: var(--accent);
 }
 
+.users-switch-block {
+  margin-top: 0.35rem;
+}
+
+.users-form-active {
+  align-self: end;
+}
+
+.finance-field-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
 .alert {
   padding: 0.85rem 1rem;
   border-radius: 0.75rem;

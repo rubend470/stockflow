@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -7,6 +8,12 @@ import {
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import type { AppUser, UserRole } from '../types/user'
+
+export interface UpdateUserInput {
+  name: string
+  role: UserRole
+  active: boolean
+}
 
 function mapUserDoc(uid: string, data: Record<string, unknown>): AppUser {
   const createdAt = data.createdAt as { toDate?: () => Date } | string | undefined
@@ -38,6 +45,23 @@ export async function updateUserRole(uid: string, role: UserRole) {
 
 export async function updateUserActive(uid: string, active: boolean) {
   await updateDoc(doc(db, 'users', uid), { active })
+}
+
+export async function updateUser(uid: string, input: UpdateUserInput) {
+  const name = input.name.trim()
+  if (!name) {
+    throw new Error('El nombre es obligatorio.')
+  }
+
+  await updateDoc(doc(db, 'users', uid), {
+    name,
+    role: input.role,
+    active: input.active,
+  })
+}
+
+export async function deleteUser(uid: string) {
+  await deleteDoc(doc(db, 'users', uid))
 }
 
 export async function getUserById(uid: string): Promise<AppUser | null> {

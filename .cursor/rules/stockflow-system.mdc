@@ -188,13 +188,16 @@ clientId?, clientName?, createdAt, createdBy, createdByName?
 - `isDebtCollection`: cobro de deuda vinculado a venta; **no** contar doble en cierre (usar `debt_payments`).
 
 ### `purchase_invoices/{id}`
-Facturas de **entrada** de mercancía (proveedor).
+Facturas de **entrada** de mercancía (proveedor). Al crear se recibe inventario de inmediato.
 ```
-number, supplierName, status: 'pending' | 'received' | 'partial' | 'paid' | 'cancelled',
+number, supplierName, supplierInvoiceNumber?, currencyCode, amountInBase, exchangeRateSnapshot,
+status: 'received' | 'partial' | 'paid' | 'cancelled' (legacy: 'pending'),
 totalAmount, amountPaid, amountDue, notes?, expectedDate?,
-lines[{ productId?, description, quantity, unitLabel, unitCost, lineTotal }],
-createdAt, updatedAt, createdBy
+lines[{ productId, description, quantity, unitLabel, unitCost, unitCostInBase, lineTotal }],
+receivedAt?, receivedBy?, createdAt, updatedAt, createdBy
 ```
+- Entrada de stock: `products` o `stock_categories` (charcutería compartida) + `costPrice` + `inventory_movements`.
+- Tras guardar: modal opcional para actualizar `salePrice` de productos recibidos.
 
 ### `debts/{id}`
 Deuda por **fiado** (venta a crédito o registro manual admin).

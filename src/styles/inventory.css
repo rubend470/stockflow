@@ -550,6 +550,32 @@
   color: var(--text);
 }
 
+.purchase-invoice-lines-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.purchase-invoice-lines-header h3 {
+  margin: 0;
+}
+
+.purchase-invoice-new-product {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: -0.35rem;
+}
+
+.purchase-sale-price-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+}
+
 .category-card-actions {
   display: flex;
   flex-wrap: wrap;

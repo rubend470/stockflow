@@ -1,5 +1,8 @@
+import { deleteApp, initializeApp } from 'firebase/app'
 import {
   createUserWithEmailAndPassword,
+  getAuth,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -15,8 +18,16 @@ import {
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore'
-import { auth, db } from '../lib/firebase'
+import { auth, db, firebaseConfig } from '../lib/firebase'
 import type { AppUser, UserRole } from '../types/user'
+
+export interface CreateUserByAdminInput {
+  name: string
+  email: string
+  password: string
+  role: UserRole
+  active: boolean
+}
 
 export async function login(email: string, password: string) {
   const credential = await signInWithEmailAndPassword(auth, email, password)
@@ -57,6 +68,51 @@ export async function register(name: string, email: string, password: string) {
 
 export async function logout() {
   await signOut(auth)
+}
+
+export async function createUserByAdmin(input: CreateUserByAdminInput): Promise<AppUser> {
+  const name = input.name.trim()
+  const email = input.email.trim().toLowerCase()
+
+  if (!name || !email) {
+    throw new Error('Nombre y correo son obligatorios.')
+  }
+
+  if (input.password.length < 6) {
+    throw new Error('La contraseña debe tener al menos 6 caracteres.')
+  }
+
+  const secondaryApp = initializeApp(firebaseConfig, `admin-create-${Date.now()}`)
+  const secondaryAuth = getAuth(secondaryApp)
+
+  try {
+    const credential = await createUserWithEmailAndPassword(secondaryAuth, email, input.password)
+    await updateProfile(credential.user, { displayName: name })
+
+    await setDoc(doc(db, 'users', credential.user.uid), {
+      name,
+      email,
+      role: input.role,
+      active: input.active,
+      createdAt: serverTimestamp(),
+    })
+
+    return {
+      uid: credential.user.uid,
+      name,
+      email,
+      role: input.role,
+      active: input.active,
+      createdAt: new Date().toISOString(),
+    }
+  } finally {
+    await signOut(secondaryAuth).catch(() => undefined)
+    await deleteApp(secondaryApp)
+  }
+}
+
+export async function sendPasswordReset(email: string) {
+  await sendPasswordResetEmail(auth, email.trim().toLowerCase())
 }
 
 export async function getUserProfile(uid: string): Promise<AppUser | null> {

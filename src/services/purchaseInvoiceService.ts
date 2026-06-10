@@ -6,18 +6,26 @@ import {
   increment,
   runTransaction,
   serverTimestamp,
-  setDoc,
   updateDoc,
   writeBatch,
+  type WriteBatch,
 } from 'firebase/firestore'
+import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
 import { db } from '../lib/firebase'
-import { getProductById } from './productService'
+import type { Product } from '../types/product'
 import type {
   CreatePurchaseInvoiceInput,
+  CreatePurchaseInvoiceResult,
   PurchaseInvoice,
   PurchaseInvoiceLine,
   PurchaseInvoiceLineInput,
+  ReceivedProductLine,
+  SalePriceUpdateInput,
 } from '../types/purchaseInvoice'
+import { buildExchangeRateSnapshot, convertCurrency } from '../utils/exchangeRates'
+import { roundMoney } from '../utils/formatMoney'
+import { listLatestExchangeRates } from './financeService'
+import { getProductById } from './productService'
 
 function mapTimestamp(value: unknown) {
   const typed = value as { toDate?: () => Date } | string | undefined
@@ -30,11 +38,12 @@ function mapTimestamp(value: unknown) {
 
 function mapLine(data: Record<string, unknown>): PurchaseInvoiceLine {
   return {
-    productId: data.productId ? String(data.productId) : undefined,
+    productId: String(data.productId ?? ''),
     description: String(data.description ?? ''),
     quantity: Number(data.quantity ?? 0),
     unitLabel: String(data.unitLabel ?? 'und'),
     unitCost: Number(data.unitCost ?? 0),
+    unitCostInBase: Number(data.unitCostInBase ?? data.unitCost ?? 0),
     lineTotal: Number(data.lineTotal ?? 0),
   }
 }
@@ -46,6 +55,15 @@ function mapPurchaseInvoice(id: string, data: Record<string, unknown>): Purchase
     id,
     number: String(data.number ?? ''),
     supplierName: String(data.supplierName ?? ''),
+    supplierInvoiceNumber: data.supplierInvoiceNumber
+      ? String(data.supplierInvoiceNumber)
+      : undefined,
+    currencyCode: String(data.currencyCode ?? DEFAULT_BASE_CURRENCY_CODE).toUpperCase(),
+    amountInBase: Number(data.amountInBase ?? data.totalAmount ?? 0),
+    exchangeRateSnapshot:
+      data.exchangeRateSnapshot && typeof data.exchangeRateSnapshot === 'object'
+        ? (data.exchangeRateSnapshot as Record<string, number>)
+        : {},
     status: (data.status as PurchaseInvoice['status']) ?? 'pending',
     totalAmount: Number(data.totalAmount ?? 0),
     amountPaid: Number(data.amountPaid ?? 0),
@@ -55,33 +73,122 @@ function mapPurchaseInvoice(id: string, data: Record<string, unknown>): Purchase
     lines,
     createdAt: mapTimestamp(data.createdAt) ?? new Date().toISOString(),
     updatedAt: mapTimestamp(data.updatedAt),
+    receivedAt: mapTimestamp(data.receivedAt),
   }
 }
 
-function normalizeLines(lines: PurchaseInvoiceLineInput[]): PurchaseInvoiceLine[] {
+async function normalizeLines(
+  lines: PurchaseInvoiceLineInput[],
+  invoiceCurrency: string,
+  baseCurrency: string,
+  rates: Awaited<ReturnType<typeof listLatestExchangeRates>>,
+): Promise<PurchaseInvoiceLine[]> {
   if (lines.length === 0) {
     throw new Error('Agrega al menos una línea a la factura.')
   }
 
-  return lines.map((line) => {
+  const normalized: PurchaseInvoiceLine[] = []
+
+  for (const line of lines) {
+    if (!line.productId?.trim()) {
+      throw new Error('Cada línea debe tener un producto del catálogo.')
+    }
+
     if (!line.description.trim()) {
       throw new Error('Cada línea debe tener una descripción.')
     }
+
     if (line.quantity <= 0) {
       throw new Error('La cantidad debe ser mayor a cero.')
     }
+
     if (line.unitCost < 0) {
       throw new Error('El costo no puede ser negativo.')
     }
 
-    return {
-      productId: line.productId?.trim() || undefined,
-      description: line.description.trim(),
-      quantity: line.quantity,
-      unitLabel: line.unitLabel || 'und',
-      unitCost: line.unitCost,
-      lineTotal: Number((line.quantity * line.unitCost).toFixed(2)),
+    const product = await getProductById(line.productId.trim())
+    if (!product) {
+      throw new Error(`Producto no encontrado: ${line.description}`)
     }
+
+    const unitCostInBase = convertCurrency(
+      line.unitCost,
+      invoiceCurrency,
+      baseCurrency,
+      rates,
+    )
+
+    normalized.push({
+      productId: product.id,
+      description: line.description.trim() || product.name,
+      quantity: line.quantity,
+      unitLabel: line.unitLabel || product.unitLabel,
+      unitCost: roundMoney(line.unitCost),
+      unitCostInBase: roundMoney(unitCostInBase),
+      lineTotal: roundMoney(line.quantity * line.unitCost),
+    })
+  }
+
+  return normalized
+}
+
+function unitCostInProductCurrency(
+  line: PurchaseInvoiceLine,
+  product: Product,
+  invoiceCurrency: string,
+  rates: Awaited<ReturnType<typeof listLatestExchangeRates>>,
+) {
+  if (invoiceCurrency === product.currencyCode) {
+    return line.unitCost
+  }
+
+  return convertCurrency(line.unitCost, invoiceCurrency, product.currencyCode, rates)
+}
+
+function applyStockEntry(
+  batch: WriteBatch,
+  product: Product,
+  line: PurchaseInvoiceLine,
+  unitCostInProduct: number,
+  context: {
+    invoiceId: string
+    invoiceNumber: string
+    supplierName: string
+  },
+  userId: string,
+  userName: string,
+) {
+  const movementRef = doc(collection(db, 'inventory_movements'))
+  batch.set(movementRef, {
+    productId: product.stockCategoryId ? null : product.id,
+    stockCategoryId: product.stockCategoryId ?? null,
+    productName: product.name,
+    type: 'purchase',
+    quantity: line.quantity,
+    unitCost: unitCostInProduct,
+    referenceType: 'purchase_invoice',
+    referenceId: context.invoiceId,
+    notes: `Entrada factura ${context.invoiceNumber} · ${context.supplierName}`,
+    createdAt: serverTimestamp(),
+    createdBy: userId,
+    createdByName: userName,
+  })
+
+  if (product.stockCategoryId) {
+    batch.update(doc(db, 'stock_categories', product.stockCategoryId), {
+      stock: increment(line.quantity),
+      updatedAt: serverTimestamp(),
+    })
+  } else {
+    batch.update(doc(db, 'products', product.id), {
+      stock: increment(line.quantity),
+      updatedAt: serverTimestamp(),
+    })
+  }
+
+  batch.update(doc(db, 'products', product.id), {
+    costPrice: unitCostInProduct,
+    updatedAt: serverTimestamp(),
   })
 }
 
@@ -128,27 +235,85 @@ export async function getPurchaseInvoiceById(id: string): Promise<PurchaseInvoic
   return mapPurchaseInvoice(snapshot.id, snapshot.data())
 }
 
-export async function createPurchaseInvoice(input: CreatePurchaseInvoiceInput, userId: string) {
+export async function createAndReceivePurchaseInvoice(
+  input: CreatePurchaseInvoiceInput,
+  userId: string,
+  userName: string,
+): Promise<CreatePurchaseInvoiceResult> {
   if (!input.supplierName.trim()) {
     throw new Error('El proveedor es obligatorio.')
   }
 
-  const lines = normalizeLines(input.lines)
-  const totalAmount = lines.reduce((sum, line) => sum + line.lineTotal, 0)
-  const amountPaid = Math.max(input.amountPaid ?? 0, 0)
+  const currencyCode = input.currencyCode.trim().toUpperCase() || DEFAULT_BASE_CURRENCY_CODE
+  const baseCurrency = DEFAULT_BASE_CURRENCY_CODE
+  const rates = await listLatestExchangeRates()
+  const exchangeRateSnapshot = buildExchangeRateSnapshot(rates, baseCurrency)
+
+  const lines = await normalizeLines(input.lines, currencyCode, baseCurrency, rates)
+  const totalAmount = roundMoney(lines.reduce((sum, line) => sum + line.lineTotal, 0))
+  const amountPaid = roundMoney(Math.max(input.amountPaid ?? 0, 0))
 
   if (amountPaid > totalAmount + 0.01) {
     throw new Error('El monto pagado no puede superar el total de la factura.')
   }
 
-  const amountDue = Number((totalAmount - amountPaid).toFixed(2))
+  const amountDue = roundMoney(Math.max(totalAmount - amountPaid, 0))
+  const amountInBase = roundMoney(
+    lines.reduce((sum, line) => sum + line.unitCostInBase * line.quantity, 0),
+  )
+
+  let status: PurchaseInvoice['status'] = 'received'
+  if (amountDue <= 0.01) {
+    status = 'paid'
+  } else if (amountPaid > 0.01) {
+    status = 'partial'
+  }
+
   const number = await getNextInvoiceNumber()
   const ref = doc(collection(db, 'purchase_invoices'))
+  const batch = writeBatch(db)
+  const receivedLines: ReceivedProductLine[] = []
 
-  await setDoc(ref, {
+  for (const line of lines) {
+    const product = await getProductById(line.productId)
+    if (!product) continue
+
+    const costInProduct = roundMoney(
+      unitCostInProductCurrency(line, product, currencyCode, rates),
+    )
+
+    applyStockEntry(
+      batch,
+      product,
+      line,
+      costInProduct,
+      {
+        invoiceId: ref.id,
+        invoiceNumber: number,
+        supplierName: input.supplierName.trim(),
+      },
+      userId,
+      userName,
+    )
+
+    receivedLines.push({
+      productId: product.id,
+      productName: product.name,
+      unitLabel: product.unitLabel,
+      currencyCode: product.currencyCode,
+      previousSalePrice: product.salePrice,
+      newCostPrice: costInProduct,
+    })
+  }
+
+  batch.set(ref, {
     number,
     supplierName: input.supplierName.trim(),
-    status: 'pending',
+    supplierInvoiceNumber: input.supplierInvoiceNumber?.trim() || null,
+    currencyCode,
+    amountInBase,
+    exchangeRateSnapshot,
+    status,
     totalAmount,
     amountPaid,
     amountDue,
@@ -157,10 +322,42 @@ export async function createPurchaseInvoice(input: CreatePurchaseInvoiceInput, u
     lines,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+    receivedAt: serverTimestamp(),
+    receivedBy: userId,
     createdBy: userId,
   })
 
-  return ref.id
+  await batch.commit()
+
+  return {
+    id: ref.id,
+    number,
+    receivedLines,
+  }
+}
+
+/** @deprecated Usar createAndReceivePurchaseInvoice. Mantenido para facturas legacy pending. */
+export async function createPurchaseInvoice(input: CreatePurchaseInvoiceInput, userId: string) {
+  const result = await createAndReceivePurchaseInvoice(input, userId, '')
+  return result.id
+}
+
+export async function applySalePriceUpdates(updates: SalePriceUpdateInput[]) {
+  const batch = writeBatch(db)
+  let hasWrites = false
+
+  updates.forEach((update) => {
+    if (!update.productId || update.salePrice < 0) return
+    batch.update(doc(db, 'products', update.productId), {
+      salePrice: roundMoney(update.salePrice),
+      updatedAt: serverTimestamp(),
+    })
+    hasWrites = true
+  })
+
+  if (hasWrites) {
+    await batch.commit()
+  }
 }
 
 export async function registerPurchaseInvoicePayment(id: string, amount: number) {
@@ -177,12 +374,12 @@ export async function registerPurchaseInvoicePayment(id: string, amount: number)
     throw new Error('No puedes pagar una factura anulada.')
   }
 
-  const nextPaid = Number((invoice.amountPaid + amount).toFixed(2))
+  const nextPaid = roundMoney(invoice.amountPaid + amount)
   if (nextPaid > invoice.totalAmount + 0.01) {
     throw new Error('El pago supera el total de la factura.')
   }
 
-  const amountDue = Number((invoice.totalAmount - nextPaid).toFixed(2))
+  const amountDue = roundMoney(Math.max(invoice.totalAmount - nextPaid, 0))
   let status = invoice.status
   if (amountDue <= 0.01) {
     status = 'paid'
@@ -192,12 +389,13 @@ export async function registerPurchaseInvoicePayment(id: string, amount: number)
 
   await updateDoc(doc(db, 'purchase_invoices', id), {
     amountPaid: nextPaid,
-    amountDue: Math.max(amountDue, 0),
+    amountDue,
     status,
     updatedAt: serverTimestamp(),
   })
 }
 
+/** Solo para facturas legacy en estado pending. */
 export async function receivePurchaseInvoice(id: string, userId: string, userName: string) {
   const invoice = await getPurchaseInvoiceById(id)
   if (!invoice) {
@@ -208,6 +406,7 @@ export async function receivePurchaseInvoice(id: string, userId: string, userNam
     throw new Error('Solo puedes registrar entrada en facturas pendientes.')
   }
 
+  const rates = await listLatestExchangeRates()
   const batch = writeBatch(db)
 
   for (const line of invoice.lines) {
@@ -216,29 +415,27 @@ export async function receivePurchaseInvoice(id: string, userId: string, userNam
     const product = await getProductById(line.productId)
     if (!product) continue
 
-    const movementRef = doc(collection(db, 'inventory_movements'))
-    batch.set(movementRef, {
-      productId: product.id,
-      productName: product.name,
-      type: 'purchase',
-      quantity: line.quantity,
-      unitCost: line.unitCost,
-      referenceType: 'purchase_invoice',
-      referenceId: id,
-      notes: `Entrada factura ${invoice.number} · ${invoice.supplierName}`,
-      createdAt: serverTimestamp(),
-      createdBy: userId,
-      createdByName: userName,
-    })
+    const costInProduct = roundMoney(
+      unitCostInProductCurrency(line, product, invoice.currencyCode, rates),
+    )
 
-    batch.update(doc(db, 'products', product.id), {
-      stock: increment(line.quantity),
-      costPrice: line.unitCost,
-      updatedAt: serverTimestamp(),
-    })
+    applyStockEntry(
+      batch,
+      product,
+      line,
+      costInProduct,
+      {
+        invoiceId: id,
+        invoiceNumber: invoice.number,
+        supplierName: invoice.supplierName,
+      },
+      userId,
+      userName,
+    )
   }
 
-  const status = invoice.amountDue <= 0.01 ? 'paid' : invoice.amountPaid > 0.01 ? 'partial' : 'received'
+  const status =
+    invoice.amountDue <= 0.01 ? 'paid' : invoice.amountPaid > 0.01 ? 'partial' : 'received'
 
   batch.update(doc(db, 'purchase_invoices', id), {
     status,
