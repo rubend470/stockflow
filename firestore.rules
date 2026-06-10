@@ -1,0 +1,160 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && userDoc(request.auth.uid).role == 'super_admin';
+    }
+
+    function isAdminOrAbove() {
+      return isSignedIn() && userDoc(request.auth.uid).role in ['super_admin', 'admin'];
+    }
+
+    function validRole(role) {
+      return role in ['super_admin', 'admin', 'cashier'];
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && validRole(request.resource.data.role)
+        && request.resource.data.keys().hasAll(['name', 'email', 'role', 'active', 'createdAt']);
+
+      allow update: if isSuperAdmin()
+        || (
+          request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.active == resource.data.active
+        );
+
+      allow delete: if isSuperAdmin();
+    }
+
+    function isStockOnlyUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'updatedAt']);
+    }
+
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isAdminOrAbove();
+      allow update: if isAdminOrAbove() || (isSignedIn() && isStockOnlyUpdate());
+    }
+
+    match /stock_categories/{categoryId} {
+      allow read: if isSignedIn();
+      allow create, delete: if isAdminOrAbove();
+      allow update: if isAdminOrAbove() || (isSignedIn() && isStockOnlyUpdate());
+    }
+
+    match /currencies/{currencyId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdminOrAbove();
+    }
+
+    match /exchange_rates/{rateId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdminOrAbove();
+    }
+
+    match /payment_methods/{methodId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdminOrAbove();
+    }
+
+    match /currency_exchanges/{exchangeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdminOrAbove();
+    }
+
+    match /inventory_movements/{movementId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdminOrAbove();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdminOrAbove();
+    }
+
+    match /clients/{clientId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow delete: if isAdminOrAbove();
+      allow update: if isSignedIn();
+    }
+
+    match /cash_sessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdminOrAbove();
+    }
+
+    match /cash_closures/{closureId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdminOrAbove();
+    }
+
+    match /debts/{debtId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdminOrAbove();
+    }
+
+    match /debt_payments/{paymentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdminOrAbove();
+    }
+
+    match /loans/{loanId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdminOrAbove();
+    }
+
+    match /loan_payments/{paymentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdminOrAbove();
+    }
+
+    match /purchase_invoices/{invoiceId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdminOrAbove();
+    }
+
+    match /sales/{saleId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isAdminOrAbove();
+
+      match /items/{itemId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if isAdminOrAbove();
+      }
+
+      match /payments/{paymentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if isAdminOrAbove();
+      }
+    }
+  }
+}

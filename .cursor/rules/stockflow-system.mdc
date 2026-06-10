@@ -1,0 +1,361 @@
+---
+description: Arquitectura, módulos, Firestore y convenciones de StockFlow
+alwaysApply: true
+---
+
+# StockFlow — Sistema de referencia
+
+Sistema de **ventas e inventario** para **abasto y charcutería**. Stack: **React 19 + TypeScript + Vite + Firebase** (Auth, Firestore, Hosting).
+
+## Principios
+
+- **Firestore** es la fuente de verdad. No duplicar lógica de negocio crítica solo en el cliente; validar en reglas y, si hace falta, Cloud Functions.
+- **Precios y costos se congelan en la venta** (snapshot). Nunca recalcular ganancias históricas con precios actuales del producto.
+- **Multimoneda**: guardar monto en moneda original + equivalente en moneda base (**COP**, peso colombiano) usando la tasa del momento.
+- **Inventario**: toda salida de stock debe tener trazabilidad (venta, merma, ajuste, entrada).
+- **Roles**: `super_admin` > `admin` > `cashier`. Solo `super_admin` gestiona usuarios y roles.
+- **UI**: español, tema claro/oscuro, layout con sidebar (`AppLayout`). Servicios en `src/services/`, tipos en `src/types/`.
+
+## Estructura de carpetas
+
+```
+src/
+  config/navigation.ts     # Menú y rutas
+  context/                 # AuthContext, ThemeContext
+  lib/firebase.ts          # Init Firebase
+  services/                # Lógica Firestore (authService, userService, productService…)
+  types/                   # Interfaces compartidas
+  pages/modules/           # Una carpeta por dominio (sales, inventory, clients…)
+  components/layout/       # Sidebar, TopBar, AppLayout
+```
+
+Convención de servicios: `listX`, `getX`, `createX`, `updateX`. Errores Firebase traducidos en `utils/`.
+
+## Roles y permisos
+
+| Rol | Acceso |
+|-----|--------|
+| `super_admin` | Todo + usuarios + configuración |
+| `admin` | Inventario, ventas, clientes, finanzas, reportes, configuración |
+| `cashier` | POS, cierre de caja, facturas pendientes, historial de ventas, clientes/deudas/préstamos (cobros y registro) |
+
+## Módulos del sistema
+
+### 1. Auth (implementado)
+Login/registro. Perfil en `users/{uid}`.
+
+### 2. Administración (parcial)
+- **Usuarios** ✅ — tabla Firestore, roles, activar/desactivar
+- **Configuración** — datos del negocio, ticket, impresora, stock mínimo global
+
+### 3. Inventario
+- **Categorías de inventario** — stock compartido (ej. Pollo 50 kg); productos derivados restan del total
+- **Productos** — catálogo, barcode, unidad (`unit` | `weight`), precio venta, **costo**, stock mínimo
+- **Stock actual** — lectura derivada de productos + movimientos
+- **Entradas y salidas** — compras, mermas, ajustes, devoluciones
+
+### 4. Ventas
+- **Punto de venta (POS)** — lectora de barras (input HID), búsqueda, carrito, pagos mixtos y multimoneda
+- **Cliente en POS** — **no obligatorio**. Solo se registra si hay venta a **crédito (fiado)**; entonces nombre + teléfono son obligatorios (`findOrCreateClientForCredit`). Ventas al contado van sin `clientId`.
+- **Crédito en POS** — botón «Vender a crédito»; frecuentes por teléfono/saldo; crea o actualiza `clients` y genera `debts`.
+- **Historial de ventas** — por defecto solo ventas del **día vigente**; rango Desde/Hasta para días anteriores; desglose por moneda, borrado (solo admin, revierte stock)
+- **Cierre de caja** — reporte por fecha (`cash_closures`): ventas, cobros, cambio de moneda, préstamos (salida) y abonos de préstamos (entrada)
+- **Facturas pendientes** — facturas de entrada de mercancía por proveedor (no ventas a crédito)
+
+### 5. Clientes
+- **Deudas y créditos** (`/clientes/deudas`) — dos pestañas:
+  - **Deudas (fiado)** — saldo por cliente (ventas a crédito + deudas manuales), abonos, historial
+  - **Préstamos** — dinero que sale de caja al prestar; nombre, teléfono, monto, moneda, nota; historial y cobro de abonos
+
+### 6. Finanzas
+- **Cambio de moneda** — operaciones de casa de cambio con tasas configuradas (todos los roles)
+- **Monedas y tasas** — monedas activas, tasa del día, moneda base
+- **Formas de pago** — efectivo, transferencia, pago móvil, tarjeta, mixto; flag `isDefaultForSales` para preselección en POS
+
+### 7. Reportes y ganancias ✅
+- Ventas por periodo (hoy / 7 días / mes), ingresos, ganancia bruta y **margen %**
+- **Cambio de moneda** del periodo: operaciones, volumen en COP, flujo entró/salió por moneda
+- Desglose por **día**, **categoría** (abasto / charcutería), **cajero** y productos más vendidos
+- Tabla de **stock bajo y agotado** (incluye categorías compartidas)
+- Solo `admin` y `super_admin` acceden al módulo; costos y ganancias ocultos al cajero
+- Cache `profit_reports` opcional — no implementado; se calcula en cliente
+
+---
+
+## Colecciones Firestore
+
+### `users/{uid}` ✅
+```
+name, email, role, active, createdAt
+```
+
+### `settings/app`
+Config global del negocio.
+```
+businessName, address, phone, baseCurrency, taxEnabled, taxRate,
+lowStockAlertEnabled, createdAt, updatedAt
+```
+
+### `stock_categories/{id}`
+Stock compartido para productos derivados (desposte).
+```
+name, unitLabel,              // ej. Pollo, kg
+stock, minStock, active, createdAt, updatedAt, createdBy
+```
+
+### `products/{id}`
+```
+name, barcode?, sku?, stockCategoryId?, type: 'abasto' | 'charcuteria',
+soldBy: 'unit' | 'weight', unitLabel,       // 'und', 'kg', 'lb'
+costPrice, salePrice,                       // en moneda base; ver precios por moneda abajo
+costPriceByCurrency?, salePriceByCurrency?, // opcional multimoneda
+stock, minStock, active, createdAt, updatedAt, createdBy
+```
+
+### `inventory_movements/{id}`
+Trazabilidad de stock. Tipos: `purchase` | `sale` | `adjustment` | `waste` | `return`.
+```
+productId?, stockCategoryId?, type, quantity,   // positivo=entrada, negativo=salida
+unitCost?, referenceType?, referenceId?,   // saleId, purchaseId…
+notes?, createdAt, createdBy
+```
+**Regla**: al confirmar venta o movimiento, actualizar `products.stock` en transacción/batch.
+
+### `currencies/{id}`
+```
+code, name, symbol, active, isBase, createdAt
+```
+
+### `exchange_rates/{id}`
+```
+fromCurrency, toCurrency, fromAmount, toAmount,   // ej. 1 USD = 4000 COP
+effectiveDate, createdAt, createdBy
+```
+Cada par es independiente (USD→COP y COP→USD pueden tener montos distintos).
+
+### `payment_methods/{id}`
+```
+name, code, active, allowedCurrencies[], requiresReference, isDefaultForSales, sortOrder
+```
+
+### `currency_exchanges/{id}`
+Operación de casa de cambio (snapshot de tasa al momento).
+```
+cashInCurrency, cashInAmount, cashInMethodId, cashInMethodName, cashInReference?, // entró a caja
+cashOutCurrency, cashOutAmount, cashOutMethodId, cashOutMethodName, cashOutReference?, // salió de caja
+fromCurrency, toCurrency, fromAmount, toAmount,                    // alias legacy
+conversionFactor, rateLabel, amountInBase, baseCurrency, exchangeRateSnapshot,
+clientName?, notes?, createdAt, createdBy, createdByName
+```
+
+### `clients/{id}`
+```
+name, phone?, email?, documentId?, creditLimit, balance, active, createdAt, updatedAt
+```
+- **Crear**: cualquier usuario autenticado (cajero al fiar en POS). **Eliminar**: solo admin.
+- Teléfono se usa para identificar frecuentes en crédito y préstamos (`normalizePhone` / `borrowerKey`).
+
+### `sales/{id}`
+Venta confirmada (pagada total o parcial).
+```
+number, status: 'completed' | 'partial' | 'pending' | 'cancelled',
+clientId?, clientName?,                    // solo si hay pago a crédito en la venta
+cashierId, cashierName,
+subtotal, discount, tax, total,
+baseCurrency, exchangeRateSnapshot,       // mapa "FROM->TO" → factor usado en la venta
+profitTotal,                              // suma de profit de ítems ⭐
+paymentStatus: 'paid' | 'partial' | 'pending',
+cashPaid?, creditPaid?,                   // totales en moneda base (COP)
+createdAt, updatedAt
+```
+
+### `sales/{saleId}/items/{itemId}` (subcolección)
+Snapshot por línea — **base para ganancias**.
+```
+productId, productName, barcode?, soldBy,
+quantity, unit, unitCost, unitPrice,       // congelados al vender
+lineCost, lineRevenue, lineProfit,         // lineProfit = lineRevenue - lineCost ⭐
+discount?, createdAt
+```
+
+### `sales/{saleId}/payments/{paymentId}` (subcolección) ✅
+```
+methodId, methodName, currencyCode, amount, amountInBase,
+reference?, isCredit?, isDebtCollection?, debtPaymentId?,
+clientId?, clientName?, createdAt, createdBy, createdByName?
+```
+- `isCredit`: venta fiada en POS (no entra en caja del cierre).
+- `isDebtCollection`: cobro de deuda vinculado a venta; **no** contar doble en cierre (usar `debt_payments`).
+
+### `purchase_invoices/{id}`
+Facturas de **entrada** de mercancía (proveedor).
+```
+number, supplierName, status: 'pending' | 'received' | 'partial' | 'paid' | 'cancelled',
+totalAmount, amountPaid, amountDue, notes?, expectedDate?,
+lines[{ productId?, description, quantity, unitLabel, unitCost, lineTotal }],
+createdAt, updatedAt, createdBy
+```
+
+### `debts/{id}`
+Deuda por **fiado** (venta a crédito o registro manual admin).
+```
+clientId, clientName, saleId?, originalAmount, balance,
+status: 'active' | 'paid' | 'overdue', dueDate?, notes?, createdAt, updatedAt
+```
+
+### `debt_payments/{id}`
+Abonos a deudas de clientes (entrada de caja en el cierre).
+```
+debtId, clientId, amount, currencyCode, amountInBase,
+methodName, reference?, createdAt, createdBy, createdByName?
+```
+
+### `loans/{id}`
+**Préstamos** del dueño (salida de caja al otorgar).
+```
+borrowerName, borrowerPhone, currencyCode,
+originalAmount, amountInBase, balance, balanceInBase,
+status: 'active' | 'paid', notes?,
+createdAt, updatedAt, createdBy, createdByName?
+```
+
+### `loan_payments/{id}`
+Abonos a préstamos (entrada de caja en el cierre).
+```
+loanId, borrowerPhone, amount, currencyCode, amountInBase,
+methodName, reference?, createdAt, createdBy, createdByName?
+```
+
+### `cash_closures/{id}`
+Cierre diario persistido (un documento por `closureDate`).
+```
+closureDate, report: CashClosureReport, createdAt, createdBy, createdByName
+```
+`CashClosureReport` incluye: ventas del día, movimientos de dinero, cambio de moneda, `loansGiven` (salidas), abonos de deuda y préstamos, `cashByCurrency`, `netByCurrency` (cobros − cambios − préstamos).
+
+### `profit_reports/{id}` (opcional — cache diario)
+Generado bajo demanda o como cache diario.
+```
+date, totalRevenue, totalCost, totalProfit, marginPercent,
+byCategory[], byProduct[], createdAt
+```
+Si no se cachea, calcular en cliente/consulta agregando `sales` del periodo.
+
+---
+
+## Cálculo de ganancias ⭐
+
+```
+lineCost    = unitCost × quantity
+lineRevenue = unitPrice × quantity − descuentoLínea
+lineProfit  = lineRevenue − lineCost
+profitTotal = Σ lineProfit − descuentoGlobal (si aplica)
+margin %    = (profitTotal / totalRevenue) × 100
+```
+
+- `unitCost` y `unitPrice` se copian del producto al agregar al carrito / confirmar venta.
+- Productos por **peso** (charcutería): `quantity` en kg/lb; costo y precio son por unidad de peso.
+- Ventas a crédito: ganancia se registra al **confirmar la venta**, no al cobrar la deuda.
+- Reportes filtran por `createdAt` de `sales` y excluyen `cancelled`.
+
+---
+
+## Flujos clave
+
+### POS
+1. Escanear/buscar producto → agregar al carrito
+2. Cobro: formas de pago (mixtas, multimoneda) o **vender a crédito**
+3. Si hay crédito: modal con nombre + teléfono (obligatorios) → `findOrCreateClientForCredit` → pago con `isCredit: true`
+4. Batch write: `sales` + `items` + `payments` + `inventory_movements` + actualizar `products.stock`
+5. Si hay crédito: crear/actualizar `debts` y `clients.balance`
+
+### Fiado vs préstamo
+| Concepto | Origen | Efecto en caja |
+|----------|--------|----------------|
+| **Fiado (deuda)** | Venta a crédito en POS o deuda manual | No entra dinero al vender; **entrada** al cobrar abono |
+| **Préstamo** | Registro en Deudas → Préstamos | **Salida** al otorgar; **entrada** al cobrar abono |
+
+Servicios: `debtService` (`recordClientDebtPayment` reparte abono entre deudas activas), `loanService` (`createLoan`, `recordBorrowerLoanPayment`).
+
+### Cierre de caja
+1. Elegir fecha (por defecto hoy) → `buildCashClosureReport`
+2. Entradas: cobros de ventas (no crédito), `debt_payments`, `loan_payments`
+3. Salidas: `currency_exchanges` (`cashOut`), `loans` creados ese día; entradas por cambio: `cashIn`
+4. Detalle incluye tabla **Cambio de moneda del día** (entró/salió, método, tasa) si hubo operaciones
+5. Guardar en `cash_closures` (único por fecha); reporte guarda `exchangesCount`, `exchanges[]`
+
+### Ventas por día
+Totales diarios filtran `sales` por `createdAt`. El **cierre de caja** es el resumen oficial de dinero físico por fecha.
+
+### Entrada de inventario
+1. Crear `inventory_movement` tipo `purchase`
+2. Actualizar `products.stock` y opcionalmente `costPrice` (promedio ponderado o último costo — definir en settings)
+
+---
+
+## Rutas frontend
+
+| Ruta | Módulo |
+|------|--------|
+| `/` | Dashboard |
+| `/ventas/pos` | POS |
+| `/ventas/historial` | Historial de ventas |
+| `/ventas/cierre` | Cierre de caja |
+| `/ventas/facturas-pendientes` | Facturas de entrada (proveedor) |
+| `/inventario/productos` | Productos |
+| `/inventario/categorias` | Categorías de inventario (stock compartido) |
+| `/inventario/stock` | Stock |
+| `/inventario/movimientos` | Movimientos |
+| `/clientes/deudas` | Clientes — deudas (fiado) y préstamos |
+| `/finanzas/monedas` | Monedas |
+| `/finanzas/pagos` | Formas de pago |
+| `/reportes` | Reportes y ganancias |
+| `/admin/usuarios` | Usuarios |
+| `/admin/configuracion` | Configuración |
+
+Al agregar módulos: actualizar `navigation.ts`, crear página en `pages/modules/`, servicio en `services/`, tipos en `types/`, reglas en `firestore.rules`.
+
+---
+
+## Orden de implementación sugerido
+
+1. ✅ Auth + usuarios + layout
+2. Configuración + monedas + formas de pago
+3. Categorías + productos (con costo y precio)
+4. Movimientos de inventario
+5. ✅ POS + cierre de caja + crédito sin cliente obligatorio
+6. ✅ Clientes + deudas (fiado) + préstamos + facturas pendientes
+7. ✅ Reportes y **ganancias**
+
+---
+
+## Firebase
+
+- Proyecto: `stockflow-749ad`
+- Hosting: `stockflow-sistem` → build en `dist`
+- URL pública: `https://stockflow-sistem.web.app` (pruebas en móvil sin red local)
+- Variables: `.env` con prefijo `VITE_`
+- Despliegue reglas: `firebase deploy --only firestore:rules`
+
+### Probar en el móvil
+
+**Opción 1 — Red local (desarrollo):** Mac y móvil en la misma Wi‑Fi → `npm run dev` → abrir la URL **Network** que muestra Vite (ej. `http://192.168.x.x:5173`). Si el login falla por dominio, usar opción 2 o en Firebase Console → Authentication → Dominios autorizados agregar el hostname `.local` del Mac.
+
+**Opción 2 — Hosting (recomendado en móvil):** `npm run deploy` → abrir `https://stockflow-sistem.web.app` en el teléfono.
+
+**Build local en móvil:** `npm run build && npm run preview:mobile` → URL Network en puerto 4173.
+
+## Utilidades relevantes
+
+- `formatMoney.ts` — `formatDecimalColombian`, `parseMoneyInput`, `MoneyInput`, `MoneyText` (COP `2.500,00`)
+- `exchangeRates.ts` — `convertToBase`, `convertFromBaseForPayment`, `paymentCoversBaseTarget`
+- `phone.ts` — `normalizePhone`, `isValidPhone`, `borrowerKey`
+- `dates.ts` — `isOnLocalDate` (cierre e historial por fecha local)
+
+## Código
+
+- TypeScript estricto, componentes funcionales, hooks
+- No hardcodear credenciales; no commitear `.env`
+- Mensajes de error al usuario en **español**
+- Cambios mínimos y enfocados; seguir patrones de `authService` y `userService`
+- Servicios clave: `saleService`, `debtService`, `loanService`, `cashClosureService`, `clientService`
