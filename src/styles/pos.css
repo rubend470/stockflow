@@ -24,14 +24,134 @@
   gap: 1.15rem;
 }
 
+.pos-page-register {
+  grid-template-columns: minmax(520px, 1fr) minmax(360px, 430px);
+  gap: 1.15rem;
+  max-width: 1360px;
+  margin: 0 auto;
+}
+
+.pos-page-register > .alert {
+  grid-column: 1 / -1;
+}
+
+.pos-register-main,
+.pos-register-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.pos-register-side {
+  position: sticky;
+  top: 5.75rem;
+}
+
+.pos-open-sales {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 48%),
+    var(--surface);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
+}
+
+.pos-open-sales-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.pos-open-sales-header strong {
+  display: block;
+  color: var(--text);
+}
+
+.pos-open-sales-header p {
+  margin: 0.18rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.pos-open-sales-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.65rem;
+}
+
+.pos-open-sale-tab {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 0.45rem;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--surface-muted) 62%, var(--surface));
+  padding: 0.55rem;
+}
+
+.pos-open-sale-tab.active {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  box-shadow: 0 10px 22px rgba(16, 185, 129, 0.14);
+}
+
+.pos-open-sale-select {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pos-open-sale-select strong,
+.pos-open-sale-select span {
+  display: block;
+}
+
+.pos-open-sale-select strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pos-open-sale-select span {
+  margin-top: 0.16rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.pos-open-sale-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.28rem;
+  flex-shrink: 0;
+}
+
+.pos-link-btn.danger {
+  color: #dc2626;
+}
+
 .pos-section {
   width: 100%;
   max-width: 100%;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 1.15rem;
+  border-radius: 0.95rem;
   background: var(--surface);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
   overflow: hidden;
 }
 
@@ -146,7 +266,14 @@
 .pos-search-inner {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.45rem;
+}
+
+.pos-search-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .pos-search-inner label {
@@ -155,6 +282,30 @@
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
+}
+
+.pos-scan-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--accent);
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pos-scan-badge.ready {
+  border-color: rgba(22, 163, 74, 0.38);
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.pos-page-register .pos-section-green .pos-section-body {
+  padding-bottom: 1.25rem;
 }
 
 .pos-autocomplete-item {
@@ -244,12 +395,24 @@
 .pos-loading,
 .pos-empty,
 .pos-cart-empty {
-  padding: 2rem 1rem;
+  padding: 2.2rem 1rem;
   text-align: center;
   color: var(--text-muted);
-  background: var(--surface);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--surface)), var(--surface));
   border: 1px dashed var(--border);
-  border-radius: 1rem;
+  border-radius: 0.9rem;
+}
+
+.pos-cart-empty strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.pos-cart-empty p {
+  margin: 0;
 }
 
 .pos-search-row {
@@ -261,11 +424,13 @@
 .pos-search-row input,
 .pos-autocomplete input {
   width: 100%;
-  padding: 0.85rem 1rem;
+  min-height: 3.35rem;
+  padding: 0.9rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 0.85rem;
-  background: var(--surface-muted);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--surface-muted) 65%, var(--surface));
   color: var(--text);
+  font-size: 1rem;
 }
 
 .pos-search-row input:focus,
@@ -381,7 +546,7 @@
 .pos-payment-list li {
   padding: 0.95rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 0.9rem;
+  border-radius: 0.8rem;
   background: linear-gradient(180deg, var(--surface-muted), var(--surface));
   border-left: 3px solid var(--accent);
 }
@@ -452,6 +617,14 @@
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border);
+}
+
+.pos-cart-summary {
+  margin-top: 1.15rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
 .pos-cart-summary div,
@@ -654,7 +827,7 @@
   justify-content: center;
   padding: 0.75rem 1rem;
   border: none;
-  border-radius: 0.8rem;
+  border-radius: 0.75rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -669,14 +842,16 @@
 }
 
 .pos-btn-large {
-  min-height: 3.25rem;
-  font-size: 1rem;
+  min-height: 3.65rem;
+  font-size: 1.06rem;
 }
 
 .pos-btn-primary {
   background: linear-gradient(135deg, var(--accent), #059669);
   color: #ffffff;
   box-shadow: 0 8px 18px rgba(16, 185, 129, 0.22);
+  min-height: 3.35rem;
+  padding-inline: 1.35rem;
 }
 
 .pos-btn-secondary {
@@ -707,6 +882,30 @@
   border-radius: 0.85rem;
   background: var(--surface-muted);
   cursor: pointer;
+}
+
+.pos-payment-totals {
+  gap: 0.55rem;
+  margin-top: 1.15rem;
+}
+
+.pos-payment-total-primary {
+  margin-bottom: 0.25rem;
+  padding: 0.95rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--surface)), var(--surface));
+}
+
+.pos-payment-total-primary span {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.pos-payment-total-primary strong {
+  font-size: 1.65rem;
+  color: var(--accent);
 }
 
 .pos-mixed-toggle input {
@@ -905,6 +1104,55 @@
   color: var(--accent);
 }
 
+.post-sale-dialog {
+  max-width: 440px;
+  text-align: center;
+}
+
+.post-sale-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 1rem;
+  border-radius: 999px;
+  background: var(--alert-success-bg);
+  color: var(--alert-success-text);
+  font-weight: 800;
+}
+
+.post-sale-dialog h2 {
+  margin: 0 0 0.45rem;
+  color: var(--text);
+}
+
+.post-sale-dialog p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.post-sale-error {
+  margin: 1rem 0 0;
+  text-align: left;
+}
+
+.post-sale-actions {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1.2rem;
+}
+
+.post-sale-action-primary {
+  min-height: 3.15rem;
+}
+
+.post-sale-skip {
+  justify-self: center;
+  padding: 0.35rem 0.5rem;
+}
+
 .pos-modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -917,6 +1165,18 @@
     grid-template-columns: 1fr;
   }
 
+  .pos-page-register {
+    max-width: min(860px, 100%);
+  }
+
+  .pos-register-side {
+    position: static;
+  }
+
+  .pos-open-sales-list {
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  }
+
   .pos-catalog {
     max-height: none;
   }
@@ -925,11 +1185,48 @@
 @media (max-width: 640px) {
   .app-content.app-content-pos {
     padding: 0.65rem;
+    padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
   }
 
   .pos-page,
-  .pos-page-stack {
+  .pos-page-stack,
+  .pos-page-register {
     gap: 0.75rem;
+  }
+
+  .pos-open-sales {
+    padding: 0.8rem;
+  }
+
+  .pos-open-sales-header {
+    flex-direction: column;
+  }
+
+  .pos-open-sales-header .pos-btn {
+    width: 100%;
+  }
+
+  .pos-open-sales-list {
+    display: flex;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .pos-open-sale-tab {
+    min-width: min(86vw, 280px);
+    scroll-snap-align: start;
+  }
+
+  .pos-register-main,
+  .pos-register-side {
+    gap: 0.75rem;
+  }
+
+  .pos-search-label-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
   }
 
   .pos-section {
@@ -938,16 +1235,27 @@
   }
 
   .pos-section-header {
-    padding: 0.8rem 0.85rem 0.2rem;
+    padding: 0.85rem 0.85rem 0.25rem;
     gap: 0.65rem;
+  }
+
+  .pos-section-step {
+    width: 1.8rem;
+    height: 1.8rem;
+    font-size: 0.82rem;
   }
 
   .pos-section-header h2 {
     font-size: 1rem;
   }
 
+  .pos-section-header p {
+    font-size: 0.78rem;
+    line-height: 1.25;
+  }
+
   .pos-section-body {
-    padding: 0.2rem 0.85rem 0.85rem;
+    padding: 0.25rem 0.85rem 0.9rem;
   }
 
   .pos-search-row,
@@ -961,8 +1269,15 @@
     display: grid;
   }
 
+  .pos-search-row input,
+  .pos-autocomplete input {
+    min-height: 3.35rem;
+    font-size: 1rem;
+  }
+
   .pos-search-row .pos-btn {
     width: 100%;
+    min-height: 3.15rem;
   }
 
   .pos-amount-row {
@@ -995,6 +1310,14 @@
     flex-wrap: wrap;
   }
 
+  .pos-cart-empty {
+    padding: 1.6rem 0.8rem;
+  }
+
+  .pos-cart-summary {
+    padding: 0.8rem;
+  }
+
   .pos-cart-item-meta {
     flex-direction: column;
     align-items: flex-start;
@@ -1019,6 +1342,14 @@
     flex-wrap: wrap;
   }
 
+  .pos-payment-total-primary {
+    align-items: flex-start;
+  }
+
+  .pos-payment-total-primary strong {
+    font-size: 1.38rem;
+  }
+
   .pos-autocomplete-item {
     flex-direction: column;
     align-items: flex-start;
@@ -1026,6 +1357,7 @@
 
   .pos-mixed-toggle {
     padding: 0.75rem 0.85rem;
+    border-radius: 0.8rem;
   }
 
   .pos-credit-inline-header {
@@ -1034,6 +1366,15 @@
   }
 
   .pos-btn-large {
+    min-height: 3.25rem;
+  }
+
+  .post-sale-dialog {
+    max-width: min(100%, 360px);
+  }
+
+  .post-sale-actions .pos-btn {
+    width: 100%;
     min-height: 3rem;
   }
 }

@@ -8,11 +8,18 @@ import {
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import type { AppUser, UserRole } from '../types/user'
+import { normalizeMenuPermissions } from '../utils/menuPermissions'
 
 export interface UpdateUserInput {
   name: string
   role: UserRole
   active: boolean
+  menuPermissions: string[]
+}
+
+function mapMenuPermissions(data: Record<string, unknown>): string[] | undefined {
+  if (!Array.isArray(data.menuPermissions)) return undefined
+  return normalizeMenuPermissions(data.menuPermissions.map(String))
 }
 
 function mapUserDoc(uid: string, data: Record<string, unknown>): AppUser {
@@ -24,6 +31,7 @@ function mapUserDoc(uid: string, data: Record<string, unknown>): AppUser {
     email: String(data.email ?? ''),
     role: (data.role as UserRole) ?? 'cashier',
     active: data.active !== false,
+    menuPermissions: mapMenuPermissions(data),
     createdAt:
       typeof createdAt === 'object' && createdAt?.toDate
         ? createdAt.toDate().toISOString()
@@ -57,6 +65,7 @@ export async function updateUser(uid: string, input: UpdateUserInput) {
     name,
     role: input.role,
     active: input.active,
+    menuPermissions: normalizeMenuPermissions(input.menuPermissions),
   })
 }
 

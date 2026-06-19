@@ -17,6 +17,7 @@ import {
   type TopProductRow,
 } from '../../../services/reportService'
 import { formatBaseMoney, formatMoney } from '../../../utils/formatMoney'
+import { userCanViewProfit, userHasMenuPermission } from '../../../utils/menuPermissions'
 
 const periodLabels: Record<ReportPeriod, string> = {
   today: 'Hoy',
@@ -69,8 +70,8 @@ export function ReportsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const canViewProfit = user?.role !== 'cashier'
-  const canAccess = user?.role === 'super_admin' || user?.role === 'admin'
+  const canViewProfit = userCanViewProfit(user)
+  const canAccess = userHasMenuPermission(user, 'reports')
 
   useEffect(() => {
     loadReport()
@@ -359,8 +360,8 @@ export function ReportsPage() {
             <section className="report-section">
               <div className="report-section-header">
                 <h3 className="finance-detail-title">Stock bajo y agotado</h3>
-                <Link to="/inventario/stock" className="report-section-link">
-                  Ver stock completo
+                <Link to="/inventario/productos" className="report-section-link">
+                  Ver productos
                 </Link>
               </div>
               {lowStock.length === 0 ? (

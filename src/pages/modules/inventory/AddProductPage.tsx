@@ -8,6 +8,7 @@ import { createProduct } from '../../../services/productService'
 import { listStockCategories } from '../../../services/stockCategoryService'
 import { emptyProductForm, type ProductFormInput } from '../../../types/product'
 import type { StockCategory } from '../../../types/stockCategory'
+import { userCanViewCost, userHasMenuPermission } from '../../../utils/menuPermissions'
 
 export function AddProductPage() {
   const { user } = useAuth()
@@ -18,7 +19,7 @@ export function AddProductPage() {
   const [formKey, setFormKey] = useState(0)
   const [stockCategories, setStockCategories] = useState<StockCategory[]>([])
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = userHasMenuPermission(user, 'add-product')
 
   useEffect(() => {
     if (user) {
@@ -26,7 +27,7 @@ export function AddProductPage() {
     }
     listStockCategories().then(setStockCategories).catch(() => undefined)
   }, [user])
-  const canViewCost = user?.role !== 'cashier'
+  const canViewCost = userCanViewCost(user)
 
   if (!canManage) {
     return <Navigate to="/inventario/productos" replace />

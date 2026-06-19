@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import type { ProductFormInput } from '../../types/product'
 import type { StockCategory } from '../../types/stockCategory'
+import { isLikelyBarcode, normalizeBarcode } from '../../utils/barcode'
 import {
   formatStockSummary,
   getStockInputStep,
@@ -10,13 +11,7 @@ import {
 } from '../../utils/productUnits'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../../constants/currency'
 import { MoneyInput } from '../ui/MoneyInput'
-import { formatBaseMoney } from '../../utils/formatMoney'
-
-function parseMoneyField(value: string, fallback = 0) {
-  if (value.trim() === '') return fallback
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
+import { formatBaseMoney, parseMoneyInput } from '../../utils/formatMoney'
 
 interface ProductFormProps {
   initialValues: ProductFormInput
@@ -25,6 +20,7 @@ interface ProductFormProps {
   submitting: boolean
   submitLabel: string
   secondaryLabel?: string
+  omitStockFields?: boolean
   onCancel?: () => void
   onSubmit: (values: ProductFormInput) => void
   onSecondarySubmit?: (values: ProductFormInput) => void
@@ -37,6 +33,7 @@ export function ProductForm({
   submitting,
   submitLabel,
   secondaryLabel,
+  omitStockFields = false,
   onCancel,
   onSubmit,
   onSecondarySubmit,
@@ -96,6 +93,14 @@ export function ProductForm({
     }))
   }
 
+  function handleBarcodeChange(value: string) {
+    setValues((current) => ({ ...current, barcode: value }))
+  }
+
+  function commitBarcode() {
+    setValues((current) => ({ ...current, barcode: normalizeBarcode(current.barcode) }))
+  }
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
     onSubmit(buildSubmitValues())
@@ -125,9 +130,22 @@ export function ProductForm({
             <input
               type="text"
               value={values.barcode ?? ''}
-              onChange={(event) => setValues((current) => ({ ...current, barcode: event.target.value }))}
+              inputMode="numeric"
+              autoComplete="off"
+              onChange={(event) => handleBarcodeChange(event.target.value)}
+              onBlur={commitBarcode}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                commitBarcode()
+              }}
               placeholder="Escanea o escribe el código"
             />
+            <small className="inventory-hint">
+              El lector funciona como teclado. Escanea aquí y el código queda listo para vender por
+              POS.
+              {isLikelyBarcode(values.barcode) ? ' Código detectado.' : ''}
+            </small>
           </label>
 
           <label className="inventory-field">
@@ -264,7 +282,7 @@ export function ProductForm({
                 min="0"
                 required
                 onChange={(next) =>
-                  setValues((current) => ({ ...current, costPrice: parseMoneyField(next) }))
+                  setValues((current) => ({ ...current, costPrice: parseMoneyInput(next) }))
                 }
               />
             </label>
@@ -277,7 +295,7 @@ export function ProductForm({
               value={values.salePrice}
               required
               onChange={(next) =>
-                setValues((current) => ({ ...current, salePrice: parseMoneyField(next) }))
+                setValues((current) => ({ ...current, salePrice: parseMoneyInput(next) }))
               }
             />
           </label>
@@ -323,7 +341,7 @@ export function ProductForm({
                   onChange={(next) =>
                     setValues((current) => ({
                       ...current,
-                      bundleCostPrice: parseMoneyField(next),
+                      bundleCostPrice: parseMoneyInput(next),
                     }))
                   }
                 />
@@ -339,7 +357,7 @@ export function ProductForm({
                 onChange={(next) =>
                   setValues((current) => ({
                     ...current,
-                    bundleSalePrice: parseMoneyField(next),
+                    bundleSalePrice: parseMoneyInput(next),
                   }))
                 }
               />
@@ -367,7 +385,11 @@ export function ProductForm({
 
       <div className="inventory-form-section">
         <h3>Inventario</h3>
-        {usesCategoryStock ? (
+        {omitStockFields ? (
+          <p className="inventory-hint">
+            El stock inicial queda en 0. Esta entrada de mercancía lo sumará al guardar la factura.
+          </p>
+        ) : usesCategoryStock ? (
           <div className="inventory-margin">
             Este producto descuenta del stock de{' '}
             <strong>

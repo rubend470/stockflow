@@ -7,6 +7,12 @@ import { listActiveDebts } from './debtService'
 import { listActiveLoans } from './loanService'
 import { getAppSettings } from './settingsService'
 import { listStockCategories } from './stockCategoryService'
+import {
+  getPurchaseInvoiceDueInBase,
+  listOpenPurchaseInvoices,
+  listPurchaseInvoices,
+} from './purchaseInvoiceService'
+import type { PurchaseInvoice } from '../types/purchaseInvoice'
 import type { Sale, SaleItem } from '../types/sale'
 import type { Product, ProductType } from '../types/product'
 import { getStockStatus } from '../types/product'
@@ -71,6 +77,16 @@ const categoryLabels: Record<ProductType, string> = {
   charcuteria: 'Charcutería',
 }
 
+export interface PendingPurchaseInvoiceRow {
+  id: string
+  number: string
+  supplierName: string
+  amountDue: number
+  currencyCode: string
+  amountDueInBase: number
+  status: PurchaseInvoice['status']
+}
+
 export interface DashboardStats {
   todaySales: SalesPeriodStats
   productCount: number
@@ -79,6 +95,22 @@ export interface DashboardStats {
   lowStockAlertEnabled: boolean
   activeDebtBalance: number
   activeLoanBalance: number
+  pendingPurchaseInvoices: PendingPurchaseInvoiceRow[]
+  pendingPurchaseInvoicesTotalDueInBase: number
+}
+
+function mapPendingPurchaseInvoices(invoices: PurchaseInvoice[]): PendingPurchaseInvoiceRow[] {
+  return listOpenPurchaseInvoices(invoices)
+    .map((invoice) => ({
+      id: invoice.id,
+      number: invoice.number,
+      supplierName: invoice.supplierName,
+      amountDue: invoice.amountDue,
+      currencyCode: invoice.currencyCode,
+      amountDueInBase: getPurchaseInvoiceDueInBase(invoice),
+      status: invoice.status,
+    }))
+    .sort((a, b) => b.amountDueInBase - a.amountDueInBase)
 }
 
 function isSameDay(dateIso: string, reference = new Date()) {
@@ -373,13 +405,15 @@ export function getLowStockProducts(products: Product[]): LowStockRow[] {
 }
 
 export async function getDashboardStats(canViewProfit: boolean): Promise<DashboardStats> {
-  const [sales, products, debts, loans, categories, settings] = await Promise.all([
+  const [sales, products, debts, loans, categories, settings, purchaseInvoices] =
+    await Promise.all([
     listSales(500),
     listAllProducts(),
     listActiveDebts(),
     listActiveLoans(),
     listStockCategories(),
     getAppSettings(),
+    listPurchaseInvoices(),
   ])
 
   const todaySalesList = filterSalesByPeriod(sales, 'today')
@@ -390,6 +424,7 @@ export async function getDashboardStats(canViewProfit: boolean): Promise<Dashboa
     categories,
   )
   const lowStock = getLowStockProducts(activeProducts)
+  const pendingPurchaseInvoices = mapPendingPurchaseInvoices(purchaseInvoices)
 
   return {
     todaySales,
@@ -399,6 +434,11 @@ export async function getDashboardStats(canViewProfit: boolean): Promise<Dashboa
     lowStockAlertEnabled: settings.lowStockAlertEnabled,
     activeDebtBalance: debts.reduce((sum, debt) => sum + debt.balance, 0),
     activeLoanBalance: loans.reduce((sum, loan) => sum + loan.balanceInBase, 0),
+    pendingPurchaseInvoices,
+    pendingPurchaseInvoicesTotalDueInBase: pendingPurchaseInvoices.reduce(
+      (sum, invoice) => sum + invoice.amountDueInBase,
+      0,
+    ),
   }
 }
 

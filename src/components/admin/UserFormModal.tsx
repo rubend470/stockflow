@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { MenuPermissionsField } from './MenuPermissionsField'
 import { roleOptions } from '../../utils/roles'
 import type { UserFormInput, UserRole } from '../../types/user'
+import { getAllMenuPermissionIds, getDefaultMenuPermissionsForRole } from '../../utils/menuPermissions'
 import { ModalFrame } from '../ui/ModalFrame'
 
 interface UserFormModalProps {
@@ -60,17 +62,30 @@ export function UserFormModal({
       }
     }
 
-    onSubmit(values)
+    if (values.role !== 'super_admin' && values.menuPermissions.length === 0) {
+      setFormError('Selecciona al menos una opción del menú.')
+      return
+    }
+
+    onSubmit({
+      ...values,
+      menuPermissions:
+        values.role === 'super_admin'
+          ? getAllMenuPermissionIds()
+          : values.menuPermissions,
+    })
   }
 
+  const isSuperAdminRole = values.role === 'super_admin'
+
   return (
-    <ModalFrame onClose={onClose} closeDisabled={submitting}>
+    <ModalFrame wide onClose={onClose} closeDisabled={submitting}>
       <div className="finance-modal-header">
         <h2>{mode === 'create' ? 'Nuevo usuario' : 'Editar usuario'}</h2>
         <p>
           {mode === 'create'
-            ? 'Crea la cuenta de acceso y asigna el rol desde aquí.'
-            : 'Actualiza nombre, rol y estado de la cuenta.'}
+            ? 'Crea la cuenta y elige qué opciones del menú puede ver.'
+            : 'Actualiza nombre, rol, menú y estado de la cuenta.'}
         </p>
       </div>
 
@@ -145,9 +160,14 @@ export function UserFormModal({
             <select
               className="finance-select"
               value={values.role}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, role: event.target.value as UserRole }))
-              }
+              onChange={(event) => {
+                const nextRole = event.target.value as UserRole
+                setValues((current) => ({
+                  ...current,
+                  role: nextRole,
+                  menuPermissions: getDefaultMenuPermissionsForRole(nextRole),
+                }))
+              }}
               disabled={submitting || (isSelf && mode === 'edit')}
             >
               {roleOptions.map((option) => (
@@ -179,6 +199,18 @@ export function UserFormModal({
             )}
           </label>
         </div>
+
+        <MenuPermissionsField
+          role={values.role}
+          selectedIds={values.menuPermissions}
+          disabled={submitting || isSuperAdminRole}
+          onChange={(menuPermissions) => setValues((current) => ({ ...current, menuPermissions }))}
+        />
+        {isSuperAdminRole && (
+          <p className="finance-field-hint">
+            Los super administradores tienen acceso a todo el menú automáticamente.
+          </p>
+        )}
 
         <div className="finance-form-actions">
           <button

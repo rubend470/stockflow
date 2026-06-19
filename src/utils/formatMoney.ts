@@ -21,6 +21,11 @@ export function parseMoneyInput(value: string | number) {
     return Number.isFinite(parsed) ? roundMoney(parsed) : 0
   }
 
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(trimmed)) {
+    const parsed = Number(trimmed.replace(/\./g, ''))
+    return Number.isFinite(parsed) ? roundMoney(parsed) : 0
+  }
+
   const parsed = Number(trimmed.replace(/[^\d.-]/g, ''))
   return Number.isFinite(parsed) ? roundMoney(parsed) : 0
 }

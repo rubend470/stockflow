@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AppLayout } from '../../../components/layout/AppLayout'
+import { PurchaseInvoiceDetailModal } from '../../../components/inventory/PurchaseInvoiceDetailModal'
 import { PurchaseInvoiceFormModal } from '../../../components/inventory/PurchaseInvoiceFormModal'
 import { PurchaseInvoiceSalePriceModal } from '../../../components/inventory/PurchaseInvoiceSalePriceModal'
 import { AnimatedPanel, AnimatedTableRow } from '../../../components/ui/motion'
@@ -15,22 +16,27 @@ import {
   createAndReceivePurchaseInvoice,
   listOpenPurchaseInvoices,
   listPurchaseInvoices,
+  listVisiblePurchaseInvoices,
   receivePurchaseInvoice,
   registerPurchaseInvoicePayment,
+  updatePurchaseInvoice,
 } from '../../../services/purchaseInvoiceService'
 import { listStockCategories } from '../../../services/stockCategoryService'
+import { listSuppliers } from '../../../services/supplierService'
+import type { Supplier } from '../../../types/supplier'
 import type { Currency } from '../../../types/finance'
 import type { Product, ProductFormInput } from '../../../types/product'
-import type { CreatePurchaseInvoiceInput, PurchaseInvoice, ReceivedProductLine } from '../../../types/purchaseInvoice'
+import type {
+  CreatePurchaseInvoiceInput,
+  PurchaseInvoice,
+  ReceivedProductLine,
+  UpdatePurchaseInvoiceInput,
+} from '../../../types/purchaseInvoice'
+import { formatInvoiceListDate } from '../../../utils/invoiceDate'
 import { purchaseInvoiceStatusLabels } from '../../../types/purchaseInvoice'
 import type { StockCategory } from '../../../types/stockCategory'
-import { MoneyInput } from '../../../components/ui/MoneyInput'
-import { formatBaseMoney, formatMoney, parseMoneyInput } from '../../../utils/formatMoney'
-
-function formatDate(value: string) {
-  if (!value) return '—'
-  return new Intl.DateTimeFormat('es', { dateStyle: 'medium' }).format(new Date(value))
-}
+import { formatBaseMoney, formatMoney } from '../../../utils/formatMoney'
+import { userCanViewCost, userHasMenuPermission } from '../../../utils/menuPermissions'
 
 export function PendingInvoicesPage() {
   const { user } = useAuth()
@@ -38,6 +44,7 @@ export function PendingInvoicesPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [currencies, setCurrencies] = useState<Currency[]>([])
   const [stockCategories, setStockCategories] = useState<StockCategory[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [creatingProduct, setCreatingProduct] = useState(false)
@@ -45,13 +52,13 @@ export function PendingInvoicesPage() {
   const [message, setMessage] = useState('')
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
-  const [paymentAmounts, setPaymentAmounts] = useState<Record<string, string>>({})
+  const [detailInvoice, setDetailInvoice] = useState<PurchaseInvoice | null>(null)
   const [salePriceModalOpen, setSalePriceModalOpen] = useState(false)
   const [salePriceLines, setSalePriceLines] = useState<ReceivedProductLine[]>([])
   const [lastInvoiceNumber, setLastInvoiceNumber] = useState('')
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
-  const canViewCost = user?.role !== 'cashier'
+  const canManage = userHasMenuPermission(user, 'pending-invoices')
+  const canViewCost = userCanViewCost(user)
 
   useEffect(() => {
     loadData()
@@ -62,16 +69,19 @@ export function PendingInvoicesPage() {
     setError('')
 
     try {
-      const [invoiceList, productList, currencyList, categoryList] = await Promise.all([
+      const [invoiceList, productList, currencyList, categoryList, supplierList] =
+        await Promise.all([
         listPurchaseInvoices(),
         listAllProducts(),
         listCurrencies(),
         listStockCategories(),
+        listSuppliers(),
       ])
       setInvoices(invoiceList)
       setProducts(productList.filter((product) => product.active))
       setCurrencies(currencyList)
       setStockCategories(categoryList.filter((category) => category.active))
+      setSuppliers(supplierList)
     } catch {
       setError('No se pudieron cargar las facturas de entrada.')
     } finally {
@@ -79,37 +89,41 @@ export function PendingInvoicesPage() {
     }
   }
 
+  const visibleInvoices = useMemo(() => listVisiblePurchaseInvoices(invoices), [invoices])
   const openInvoices = useMemo(() => listOpenPurchaseInvoices(invoices), [invoices])
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
-    if (!query) return openInvoices
+    if (!query) return visibleInvoices
 
-    return openInvoices.filter(
+    return visibleInvoices.filter(
       (invoice) =>
         invoice.number.toLowerCase().includes(query) ||
         invoice.supplierName.toLowerCase().includes(query) ||
         invoice.supplierInvoiceNumber?.toLowerCase().includes(query),
     )
-  }, [openInvoices, search])
+  }, [visibleInvoices, search])
 
   const pagination = usePagination(filtered, 10)
 
   const stats = useMemo(() => {
-    const pendingEntry = openInvoices.filter((invoice) => invoice.status === 'pending').length
-    const totalDueInBase = openInvoices.reduce((sum, invoice) => {
+    const pendingEntry = visibleInvoices.filter((invoice) => invoice.status === 'pending').length
+    const totalDueInBase = visibleInvoices.reduce((sum, invoice) => {
+      if (invoice.amountDue <= 0.01) return sum
       if (invoice.totalAmount <= 0.01) return sum + invoice.amountDue
       return sum + invoice.amountInBase * (invoice.amountDue / invoice.totalAmount)
     }, 0)
-    const totalAmountInBase = openInvoices.reduce((sum, invoice) => sum + invoice.amountInBase, 0)
+    const totalAmountInBase = visibleInvoices.reduce((sum, invoice) => sum + invoice.amountInBase, 0)
 
     return {
       pendingEntry,
       totalDueInBase,
       totalAmountInBase,
-      count: openInvoices.length,
+      count: visibleInvoices.length,
+      openCount: openInvoices.length,
+      paidCount: visibleInvoices.filter((invoice) => invoice.status === 'paid').length,
     }
-  }, [openInvoices])
+  }, [visibleInvoices, openInvoices])
 
   async function handleCreateProduct(values: ProductFormInput): Promise<string | null> {
     if (!user) return null
@@ -121,7 +135,7 @@ export function PendingInvoicesPage() {
       const productId = await createProduct(values, user.uid)
       const created = await listAllProducts()
       setProducts(created.filter((product) => product.active))
-      setMessage('Producto creado. Selecciónalo en la línea de la factura.')
+      setMessage('Producto creado y vinculado a la línea.')
       return productId
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo crear el producto.')
@@ -142,10 +156,22 @@ export function PendingInvoicesPage() {
       const result = await createAndReceivePurchaseInvoice(values, user.uid, user.name)
       setModalOpen(false)
       setLastInvoiceNumber(result.number)
-      setSalePriceLines(result.receivedLines)
-      setSalePriceModalOpen(result.receivedLines.length > 0)
-      if (result.receivedLines.length === 0) {
-        setMessage(`Entrada ${result.number} registrada e inventario actualizado.`)
+
+      const pendingSalePriceLines = result.receivedLines.filter((receivedLine) => {
+        const inputLine = values.lines.find((line) => line.productId === receivedLine.productId)
+        return !inputLine?.updateSalePrice
+      })
+
+      setSalePriceLines(pendingSalePriceLines)
+      setSalePriceModalOpen(pendingSalePriceLines.length > 0)
+
+      const updatedSalePrices = values.lines.filter((line) => line.updateSalePrice).length
+      if (pendingSalePriceLines.length === 0) {
+        setMessage(
+          updatedSalePrices > 0
+            ? `Entrada ${result.number} registrada. Inventario y ${updatedSalePrices} precio(s) de venta actualizados.`
+            : `Entrada ${result.number} registrada e inventario actualizado.`,
+        )
       }
       await loadData()
     } catch (err) {
@@ -178,6 +204,66 @@ export function PendingInvoicesPage() {
     setMessage(`Entrada ${lastInvoiceNumber} registrada e inventario actualizado.`)
   }
 
+  async function handleSaveDetail(invoiceId: string, values: UpdatePurchaseInvoiceInput) {
+    if (!user) return
+
+    setSubmitting(true)
+    setError('')
+    setMessage('')
+
+    try {
+      await updatePurchaseInvoice(invoiceId, values, user.uid, user.name)
+      const updated = await listPurchaseInvoices()
+      setInvoices(updated)
+      const refreshed = updated.find((invoice) => invoice.id === invoiceId) ?? null
+      setDetailInvoice(refreshed)
+      setMessage('Factura actualizada.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo actualizar la factura.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDetailPayment(invoiceId: string, amount: number) {
+    setSubmitting(true)
+    setError('')
+    setMessage('')
+
+    try {
+      await registerPurchaseInvoicePayment(invoiceId, amount)
+      const updated = await listPurchaseInvoices()
+      setInvoices(updated)
+      setDetailInvoice(updated.find((invoice) => invoice.id === invoiceId) ?? null)
+      setMessage('Abono registrado.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo registrar el abono.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleDetailMarkPaid(invoiceId: string) {
+    const invoice = invoices.find((entry) => entry.id === invoiceId)
+    if (!invoice || invoice.amountDue <= 0) return
+
+    setSubmitting(true)
+    setError('')
+    setMessage('')
+
+    try {
+      await registerPurchaseInvoicePayment(invoiceId, invoice.amountDue)
+      const updated = await listPurchaseInvoices()
+      setInvoices(updated)
+      setDetailInvoice(updated.find((entry) => entry.id === invoiceId) ?? null)
+      setMessage('Factura marcada como pagada.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo marcar como pagada.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function handleReceive(invoice: PurchaseInvoice) {
     if (!user) return
 
@@ -187,33 +273,12 @@ export function PendingInvoicesPage() {
 
     try {
       await receivePurchaseInvoice(invoice.id, user.uid, user.name)
+      const updated = await listPurchaseInvoices()
+      setInvoices(updated)
+      setDetailInvoice(updated.find((entry) => entry.id === invoice.id) ?? null)
       setMessage(`Entrada registrada para la factura ${invoice.number}.`)
-      await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar la entrada.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function handlePayment(invoice: PurchaseInvoice) {
-    const amount = parseMoneyInput(paymentAmounts[invoice.id] ?? '')
-    if (!amount || amount <= 0) {
-      setError('Ingresa un monto válido para el pago.')
-      return
-    }
-
-    setSubmitting(true)
-    setError('')
-    setMessage('')
-
-    try {
-      await registerPurchaseInvoicePayment(invoice.id, amount)
-      setMessage(`Pago registrado en factura ${invoice.number}.`)
-      setPaymentAmounts((current) => ({ ...current, [invoice.id]: '' }))
-      await loadData()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar el pago.')
     } finally {
       setSubmitting(false)
     }
@@ -226,8 +291,9 @@ export function PendingInvoicesPage() {
 
     try {
       await cancelPurchaseInvoice(invoice.id)
-      setMessage(`Factura ${invoice.number} anulada.`)
+      setDetailInvoice(null)
       await loadData()
+      setMessage(`Factura ${invoice.number} anulada.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo anular la factura.')
     } finally {
@@ -245,8 +311,8 @@ export function PendingInvoicesPage() {
           <div>
             <h2>Facturas de proveedor</h2>
             <p>
-              Al registrar una entrada, el stock y el costo se actualizan de inmediato. Aquí ves
-              también lo que falta por pagar al proveedor.
+              Historial de entradas al inventario. Las pagadas siguen aquí para consultarlas; el
+              saldo pendiente es solo lo que falta por pagar al proveedor.
             </p>
           </div>
           <div className="finance-panel-actions">
@@ -267,8 +333,16 @@ export function PendingInvoicesPage() {
 
         <div className="finance-stats">
           <article>
-            <span>Facturas abiertas</span>
+            <span>Entradas registradas</span>
             <strong>{stats.count}</strong>
+          </article>
+          <article>
+            <span>Pagadas</span>
+            <strong>{stats.paidCount}</strong>
+          </article>
+          <article>
+            <span>Por pagar (facturas)</span>
+            <strong>{stats.openCount}</strong>
           </article>
           {stats.pendingEntry > 0 && (
             <article>
@@ -302,7 +376,7 @@ export function PendingInvoicesPage() {
           <div className="finance-empty">Cargando facturas...</div>
         ) : filtered.length === 0 ? (
           <div className="finance-empty">
-            <strong>Sin facturas abiertas</strong>
+            <strong>Sin entradas registradas</strong>
             <p>
               Registra la mercancía que llegue del proveedor. El inventario se actualiza al guardar.
             </p>
@@ -336,7 +410,7 @@ export function PendingInvoicesPage() {
               <tbody>
                 {pagination.paginatedItems.map((invoice, index) => (
                   <AnimatedTableRow key={invoice.id} index={index}>
-                    <td>{formatDate(invoice.createdAt)}</td>
+                    <td>{formatInvoiceListDate(invoice)}</td>
                     <td>
                       <strong>{invoice.number}</strong>
                       {invoice.supplierInvoiceNumber && (
@@ -351,7 +425,11 @@ export function PendingInvoicesPage() {
                     <td>{formatMoney(invoice.amountPaid, invoice.currencyCode)}</td>
                     <td>{formatMoney(invoice.amountDue, invoice.currencyCode)}</td>
                     <td>
-                      <span className="finance-badge inactive">
+                      <span
+                        className={`finance-badge ${
+                          invoice.status === 'paid' ? 'ok' : 'inactive'
+                        }`}
+                      >
                         {purchaseInvoiceStatusLabels[invoice.status]}
                       </span>
                     </td>
@@ -360,50 +438,15 @@ export function PendingInvoicesPage() {
                     </td>
                     {canManage && (
                       <td className="table-actions-col">
-                        <div className="purchase-invoice-actions">
-                          {invoice.status === 'pending' && (
-                            <TableActions>
-                              <TableAction
-                                icon="receive"
-                                tone="primary"
-                                disabled={submitting}
-                                onClick={() => handleReceive(invoice)}
-                              >
-                                Entrada
-                              </TableAction>
-                              <TableAction
-                                icon="cancel"
-                                tone="danger"
-                                disabled={submitting}
-                                onClick={() => handleCancel(invoice)}
-                              >
-                                Anular
-                              </TableAction>
-                            </TableActions>
-                          )}
-                          {invoice.amountDue > 0.01 && invoice.status !== 'pending' && (
-                            <div className="purchase-invoice-pay-row">
-                              <MoneyInput
-                                placeholder="Monto"
-                                value={paymentAmounts[invoice.id] ?? ''}
-                                onChange={(next) =>
-                                  setPaymentAmounts((current) => ({
-                                    ...current,
-                                    [invoice.id]: next,
-                                  }))
-                                }
-                              />
-                              <TableAction
-                                icon="pay"
-                                tone="primary"
-                                disabled={submitting}
-                                onClick={() => handlePayment(invoice)}
-                              >
-                                Pagar
-                              </TableAction>
-                            </div>
-                          )}
-                        </div>
+                        <TableActions>
+                          <TableAction
+                            icon="view"
+                            disabled={submitting}
+                            onClick={() => setDetailInvoice(invoice)}
+                          >
+                            Ver
+                          </TableAction>
+                        </TableActions>
                       </td>
                     )}
                   </AnimatedTableRow>
@@ -424,9 +467,28 @@ export function PendingInvoicesPage() {
         )}
       </AnimatedPanel>
 
+      <PurchaseInvoiceDetailModal
+        open={detailInvoice !== null}
+        invoice={detailInvoice}
+        products={products}
+        suppliers={suppliers}
+        stockCategories={stockCategories}
+        canViewCost={canViewCost}
+        submitting={submitting}
+        creatingProduct={creatingProduct}
+        onClose={() => setDetailInvoice(null)}
+        onSave={handleSaveDetail}
+        onPayment={handleDetailPayment}
+        onMarkPaid={handleDetailMarkPaid}
+        onCreateProduct={handleCreateProduct}
+        onReceive={handleReceive}
+        onCancel={handleCancel}
+      />
+
       <PurchaseInvoiceFormModal
         open={modalOpen}
         products={products}
+        suppliers={suppliers}
         currencies={currencies}
         stockCategories={stockCategories}
         canViewCost={canViewCost}

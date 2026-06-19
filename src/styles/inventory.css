@@ -294,6 +294,10 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.inventory-modal-backdrop-nested {
+  z-index: 1100;
+}
+
 .inventory-modal {
   position: relative;
   width: 100%;
@@ -384,6 +388,27 @@
 
 .inventory-modal-wide {
   max-width: 760px;
+}
+
+.inventory-modal-scrollable {
+  display: flex;
+  flex-direction: column;
+  max-height: min(92dvh, calc(100vh - 1.5rem));
+  overflow: hidden;
+}
+
+.inventory-modal-header-fixed {
+  flex-shrink: 0;
+}
+
+.inventory-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.25rem;
+  padding: 0 0.25rem 0.25rem;
 }
 
 .inventory-add-layout {
@@ -508,6 +533,409 @@
   font-size: 0.9rem;
 }
 
+.purchase-invoice-detail-modal {
+  max-width: 920px !important;
+  max-height: min(92dvh, 92vh) !important;
+  overflow-y: auto;
+}
+
+.purchase-invoice-detail-summary {
+  margin-bottom: 0.5rem;
+}
+
+.purchase-invoice-detail-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.purchase-invoice-payment-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 240px) minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: end;
+}
+
+.purchase-invoice-payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.purchase-invoice-modal {
+  max-width: 920px !important;
+  max-height: min(92dvh, 92vh) !important;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.purchase-invoice-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.purchase-invoice-header {
+  margin-bottom: 0.25rem;
+}
+
+.purchase-invoice-section {
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.purchase-invoice-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.purchase-invoice-section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+
+.purchase-invoice-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.purchase-invoice-section-head h3 {
+  margin-bottom: 0.25rem;
+}
+
+.purchase-section-hint {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.purchase-invoice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.purchase-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.purchase-field span {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.purchase-field input,
+.purchase-field select {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.purchase-field-full {
+  grid-column: 1 / -1;
+}
+
+.purchase-field-product {
+  grid-column: 1 / -1;
+}
+
+.purchase-field-hint {
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.purchase-field-hint-muted {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.purchase-product-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.purchase-new-product-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.purchase-back-to-catalog {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.purchase-new-product-trigger {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.9rem 1rem;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.purchase-new-product-trigger:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.purchase-new-product-trigger .purchase-field {
+  margin: 0;
+  pointer-events: auto;
+}
+
+.purchase-new-product-trigger input {
+  cursor: text;
+}
+
+.purchase-new-product-cta {
+  font-size: 0.84rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.purchase-product-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.purchase-product-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.purchase-product-row .finance-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.purchase-lines-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-right: 0.15rem;
+}
+
+.purchase-line-card {
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--surface-muted) 55%, var(--surface));
+  overflow: hidden;
+}
+
+.purchase-line-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 0.9rem;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-bottom: 1px solid var(--border);
+}
+
+.purchase-line-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.purchase-line-stock-preview {
+  flex: 1;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.purchase-line-stock-preview strong {
+  color: var(--text);
+}
+
+.purchase-line-remove {
+  border: none;
+  background: transparent;
+  color: #ef4444;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+}
+
+.purchase-line-card-body {
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.purchase-receive-toggle {
+  margin-bottom: 0;
+}
+
+.purchase-receive-field {
+  gap: 0.45rem;
+}
+
+.purchase-sale-price-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.purchase-sale-price-toggle {
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.purchase-sale-price-toggle:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  color: var(--text);
+}
+
+.purchase-sale-price-toggle.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+}
+
+.purchase-sale-price-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-muted) 50%, var(--surface));
+}
+
+.purchase-line-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.purchase-line-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.purchase-line-inputs .purchase-field input,
+.purchase-line-inputs .purchase-field .money-field input {
+  min-height: 2.65rem;
+}
+
+.purchase-line-total-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.purchase-line-total-row span {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+}
+
+.purchase-line-total-row strong {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.purchase-invoice-footer {
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.purchase-invoice-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: end;
+  margin-bottom: 0.85rem;
+}
+
+.purchase-invoice-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.purchase-invoice-totals article {
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.purchase-invoice-totals span {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
+}
+
+.purchase-invoice-totals strong {
+  font-size: 1.05rem;
+}
+
+.purchase-invoice-total-main {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.purchase-invoice-total-main strong {
+  font-size: 1.35rem;
+  color: var(--accent);
+}
+
+.purchase-invoice-actions {
+  margin-top: 0;
+}
+
 .purchase-invoice-line {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -591,19 +1019,138 @@
 }
 
 @media (max-width: 760px) {
+  .inventory-panel,
+  .inventory-add-panel,
+  .inventory-help-card {
+    padding: 1rem;
+    border-radius: 0.9rem;
+  }
+
   .inventory-panel-header,
   .inventory-filters,
   .inventory-form-grid,
   .inventory-modal-actions {
     grid-template-columns: 1fr;
     flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .inventory-panel-header h2 {
+    font-size: 1.08rem;
+  }
+
+  .inventory-panel-header p {
+    font-size: 0.84rem;
+    line-height: 1.35;
   }
 
   .inventory-panel-actions {
+    display: grid;
+    grid-template-columns: 1fr;
     width: 100%;
   }
 
   .inventory-panel-actions .inventory-btn {
-    flex: 1;
+    width: 100%;
+  }
+
+  .inventory-btn {
+    min-height: 2.85rem;
+  }
+
+  .inventory-form,
+  .inventory-add-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .inventory-stats article {
+    padding: 0.85rem;
+  }
+
+  .inventory-stats strong {
+    font-size: 1.35rem;
+  }
+
+  .inventory-table-wrap {
+    margin-inline: -0.25rem;
+    border-radius: 0.8rem;
+  }
+
+  .inventory-table {
+    min-width: 760px;
+  }
+
+  .inventory-table th,
+  .inventory-table td {
+    padding: 0.75rem 0.8rem;
+  }
+
+  .inventory-modal-backdrop {
+    padding: max(0.5rem, env(safe-area-inset-top)) 0.5rem max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .inventory-modal {
+    max-height: min(94dvh, calc(100dvh - 1rem));
+    padding: 1rem;
+    border-radius: 0.95rem;
+  }
+
+  .inventory-stock-mode-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .category-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .purchase-invoice-modal {
+    max-width: 100% !important;
+  }
+
+  .purchase-invoice-grid,
+  .purchase-line-inputs,
+  .purchase-sale-price-fields,
+  .purchase-invoice-summary,
+  .purchase-invoice-totals {
+    grid-template-columns: 1fr;
+  }
+
+  .purchase-line-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .purchase-product-row {
+    flex-direction: column;
+  }
+
+  .purchase-product-row .finance-btn {
+    width: 100%;
+  }
+
+  .purchase-invoice-payment-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .purchase-invoice-payment-actions {
+    flex-direction: column;
+  }
+
+  .purchase-invoice-payment-actions .finance-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .inventory-stats {
+    grid-template-columns: 1fr;
   }
 }

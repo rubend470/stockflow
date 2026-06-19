@@ -41,8 +41,8 @@ export function RegisterPage() {
 
   return (
     <AuthLayout
-      title="Crear cuenta"
-      subtitle="Registra un usuario para StockFlow"
+      title="Crear cuenta de cajero"
+      subtitle="Registro para personal de caja y operación diaria"
       footer={
         <>
           ¿Ya tienes cuenta? <AuthLink to="/login">Inicia sesión</AuthLink>
@@ -101,7 +101,8 @@ export function RegisterPage() {
         </label>
 
         <p className="auth-note">
-          El primer usuario registrado será Super Admin.
+          Las cuentas nuevas entran como <strong>cajero</strong>. Solo el primer registro del
+          sistema será Super Admin. Si el correo ya existe, usa otro o inicia sesión.
         </p>
 
         <button type="submit" className="auth-button" disabled={submitting}>

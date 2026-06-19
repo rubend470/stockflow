@@ -109,6 +109,8 @@ function mapSalePayment(id: string, data: Record<string, unknown>): SalePayment 
     clientId: data.clientId ? String(data.clientId) : undefined,
     clientName: data.clientName ? String(data.clientName) : undefined,
     createdAt: mapTimestamp(data.createdAt) || undefined,
+    createdBy: data.createdBy ? String(data.createdBy) : undefined,
+    createdByName: data.createdByName ? String(data.createdByName) : undefined,
   }
 }
 
@@ -232,7 +234,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
     total: subtotal,
     baseCurrency: input.baseCurrency,
     exchangeRateSnapshot: input.exchangeRateSnapshot,
-    profitTotal: input.canViewProfit ? profitTotal : null,
+    profitTotal,
     paymentStatus,
     cashPaid,
     creditPaid,
@@ -304,6 +306,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
       clientName: payment.clientName ?? null,
       createdAt: serverTimestamp(),
       createdBy: input.cashierId,
+      createdByName: input.cashierName,
     })
   })
 

@@ -42,6 +42,9 @@ export function NavIcon({ name }: NavIconProps) {
     finance: (
       <path d="M12 3 4 7v10l8 4 8-4V7l-8-4Zm0 2.2 5.5 2.75L12 10.7 6.5 7.95 12 5.2ZM6 9.8l6 3 6-3v6.9l-6 3-6-3V9.8Z" />
     ),
+    expenses: (
+      <path d="M6 4h12a1 1 0 0 1 1 1v14l-3-1.5-2 1.5-2-1.5-2 1.5-2-1.5L5 19V5a1 1 0 0 1 1-1Zm3 5h6V7H9v2Zm0 4h7v-2H9v2Zm0 4h4v-2H9v2Z" />
+    ),
     currency: (
       <path d="M12 3a9 9 0 1 0 9 9A9 9 0 0 0 12 3Zm1 4v1.1A3 3 0 0 1 15 11h-2a1 1 0 0 0 0 2h1v1h-2v1h2v1h-2a1 1 0 0 0 0 2h1.1A3 3 0 0 1 11 15v-1.1A3 3 0 0 1 8 11h2a1 1 0 0 0 0-2H9V8h2V7h-2V6h2Z" />
     ),

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { Product } from '../../types/product'
+import { barcodeMatches, isLikelyBarcode, normalizeBarcode } from '../../utils/barcode'
 import { formatProductPrices } from '../../utils/productUnits'
 
 interface ProductSearchFieldProps {
@@ -20,7 +21,14 @@ export function ProductSearchField({
   onSelectProduct,
 }: ProductSearchFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const lastAutoSelectedBarcodeRef = useRef('')
   const query = value.trim().toLowerCase()
+  const barcodeQuery = normalizeBarcode(value)
+
+  const exactBarcodeProduct = useMemo(() => {
+    if (!isLikelyBarcode(barcodeQuery)) return undefined
+    return products.find((product) => barcodeMatches(product.barcode, barcodeQuery))
+  }, [products, barcodeQuery])
 
   const suggestions = useMemo(() => {
     if (!query) return []
@@ -29,7 +37,7 @@ export function ProductSearchField({
       .filter(
         (product) =>
           product.name.toLowerCase().includes(query) ||
-          product.barcode?.includes(query) ||
+          normalizeBarcode(product.barcode).toLowerCase().includes(query) ||
           product.sku?.toLowerCase().includes(query),
       )
       .slice(0, 8)
@@ -39,9 +47,32 @@ export function ProductSearchField({
     inputRef.current?.focus()
   }, [])
 
+  useEffect(() => {
+    if (!exactBarcodeProduct || exactBarcodeProduct.stock <= 0) return
+    if (lastAutoSelectedBarcodeRef.current === barcodeQuery) return
+
+    const timeoutId = window.setTimeout(() => {
+      lastAutoSelectedBarcodeRef.current = barcodeQuery
+      onSelectProduct(exactBarcodeProduct)
+    }, 120)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [barcodeQuery, exactBarcodeProduct, onSelectProduct])
+
+  useEffect(() => {
+    if (!barcodeQuery) {
+      lastAutoSelectedBarcodeRef.current = ''
+    }
+  }, [barcodeQuery])
+
   return (
     <div className="pos-search-inner">
-      <label htmlFor="pos-barcode">Código o nombre del producto</label>
+      <div className="pos-search-label-row">
+        <label htmlFor="pos-barcode">Código o nombre del producto</label>
+        <span className={exactBarcodeProduct ? 'pos-scan-badge ready' : 'pos-scan-badge'}>
+          {exactBarcodeProduct ? 'Código encontrado' : 'Lector activo'}
+        </span>
+      </div>
       <div className="pos-search-row">
         <div className="pos-autocomplete">
           <input
@@ -55,6 +86,10 @@ export function ProductSearchField({
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault()
+                if (exactBarcodeProduct) {
+                  onSelectProduct(exactBarcodeProduct)
+                  return
+                }
                 if (suggestions.length === 1) {
                   onSelectProduct(suggestions[0])
                   return
@@ -96,7 +131,8 @@ export function ProductSearchField({
         </ul>
       )}
       <p className="pos-search-hint">
-        Escanea el código y presiona Enter, o elige un producto de la lista.
+        Escanea el código; si coincide con un producto se agregará automáticamente. También puedes
+        presionar Enter o elegirlo de la lista.
       </p>
     </div>
   )

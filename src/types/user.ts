@@ -1,3 +1,5 @@
+import { getDefaultMenuPermissionsForRole, resolveUserMenuPermissions } from '../utils/menuPermissions'
+
 export type UserRole = 'super_admin' | 'admin' | 'cashier'
 
 export interface AppUser {
@@ -6,6 +8,7 @@ export interface AppUser {
   email: string
   role: UserRole
   active: boolean
+  menuPermissions?: string[]
   createdAt: string
 }
 
@@ -16,6 +19,7 @@ export interface UserFormInput {
   confirmPassword: string
   role: UserRole
   active: boolean
+  menuPermissions: string[]
 }
 
 export const emptyUserForm = (): UserFormInput => ({
@@ -25,6 +29,7 @@ export const emptyUserForm = (): UserFormInput => ({
   confirmPassword: '',
   role: 'cashier',
   active: true,
+  menuPermissions: getDefaultMenuPermissionsForRole('cashier'),
 })
 
 export function userFormFromUser(user: AppUser): UserFormInput {
@@ -35,5 +40,6 @@ export function userFormFromUser(user: AppUser): UserFormInput {
     confirmPassword: '',
     role: user.role,
     active: user.active,
+    menuPermissions: resolveUserMenuPermissions(user),
   }
 }

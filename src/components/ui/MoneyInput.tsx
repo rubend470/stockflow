@@ -10,11 +10,14 @@ interface MoneyInputProps
   currencyCode?: string
   showCurrencyPrefix?: boolean
   roundOnBlur?: boolean
+  blankWhenZero?: boolean
 }
 
-function toDisplayValue(value: string | number) {
+function toDisplayValue(value: string | number, blankWhenZero = false) {
   if (value === '' || value === null || value === undefined) return ''
-  return formatMoneyInputValue(parseMoneyInput(value))
+  const parsed = parseMoneyInput(value)
+  if (blankWhenZero && parsed === 0) return ''
+  return formatMoneyInputValue(parsed)
 }
 
 export function MoneyInput({
@@ -24,6 +27,7 @@ export function MoneyInput({
   currencyCode = DEFAULT_BASE_CURRENCY_CODE,
   showCurrencyPrefix = false,
   roundOnBlur = true,
+  blankWhenZero = false,
   min,
   placeholder = MONEY_INPUT_PLACEHOLDER,
   className,
@@ -31,7 +35,7 @@ export function MoneyInput({
   onFocus,
   ...props
 }: MoneyInputProps) {
-  const formattedValue = toDisplayValue(value)
+  const formattedValue = toDisplayValue(value, blankWhenZero)
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState(formattedValue)
 

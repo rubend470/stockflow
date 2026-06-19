@@ -18,6 +18,71 @@ service cloud.firestore {
       return isSignedIn() && userDoc(request.auth.uid).role in ['super_admin', 'admin'];
     }
 
+    function hasAssignedMenuPermission(permission) {
+      return isSignedIn()
+        && userDoc(request.auth.uid).menuPermissions is list
+        && permission in userDoc(request.auth.uid).menuPermissions;
+    }
+
+    function hasLegacyDefaultMenuPermission(permission) {
+      return isSignedIn()
+        && !(userDoc(request.auth.uid).menuPermissions is list)
+        && (
+          (
+            userDoc(request.auth.uid).role == 'admin'
+            && permission in [
+              'home',
+              'pos',
+              'currency-exchange',
+              'client-debts',
+              'sales-history',
+              'cash-closing',
+              'reports',
+              'products',
+              'categories',
+              'add-product',
+              'pending-invoices',
+              'suppliers',
+              'expenses',
+              'currencies',
+              'payments',
+              'settings'
+            ]
+          )
+          || (
+            userDoc(request.auth.uid).role == 'cashier'
+            && permission in [
+              'home',
+              'pos',
+              'currency-exchange',
+              'client-debts',
+              'sales-history'
+            ]
+          )
+        );
+    }
+
+    function hasMenuPermission(permission) {
+      return isSuperAdmin()
+        || hasAssignedMenuPermission(permission)
+        || hasLegacyDefaultMenuPermission(permission);
+    }
+
+    function hasLegacyOperationalAccess() {
+      return isAdminOrAbove()
+        || hasMenuPermission('pos')
+        || hasMenuPermission('client-debts')
+        || hasMenuPermission('pending-invoices')
+        || hasMenuPermission('suppliers')
+        || hasMenuPermission('categories');
+    }
+
+    function hasAdminPermission() {
+      return isSuperAdmin()
+        || hasMenuPermission('users')
+        || hasMenuPermission('settings');
+    }
+
     function validRole(role) {
       return role in ['super_admin', 'admin', 'cashier'];
     }
@@ -33,14 +98,16 @@ service cloud.firestore {
           || isSuperAdmin()
         );
 
-      allow update: if isSuperAdmin()
+      allow update: if hasMenuPermission('users')
         || (
           request.auth.uid == userId
           && request.resource.data.role == resource.data.role
           && request.resource.data.active == resource.data.active
+          && request.resource.data.menuPermissions == resource.data.menuPermissions
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'updatedAt'])
         );
 
-      allow delete: if isSuperAdmin();
+      allow delete: if hasMenuPermission('users');
     }
 
     function isStockOnlyUpdate() {
@@ -49,114 +116,135 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if isSignedIn();
-      allow create, delete: if isAdminOrAbove();
-      allow update: if isAdminOrAbove() || (isSignedIn() && isStockOnlyUpdate());
+      allow create, delete: if hasMenuPermission('add-product');
+      allow update: if hasMenuPermission('add-product')
+        || hasMenuPermission('pending-invoices')
+        || hasMenuPermission('suppliers')
+        || (hasLegacyOperationalAccess() && isStockOnlyUpdate());
     }
 
     match /stock_categories/{categoryId} {
       allow read: if isSignedIn();
-      allow create, delete: if isAdminOrAbove();
-      allow update: if isAdminOrAbove() || (isSignedIn() && isStockOnlyUpdate());
+      allow create, delete: if hasMenuPermission('categories');
+      allow update: if hasMenuPermission('categories')
+        || hasMenuPermission('pending-invoices')
+        || hasMenuPermission('suppliers')
+        || (hasLegacyOperationalAccess() && isStockOnlyUpdate());
     }
 
     match /currencies/{currencyId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdminOrAbove();
+      allow create, update, delete: if hasMenuPermission('currencies');
     }
 
     match /exchange_rates/{rateId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdminOrAbove();
+      allow create, update, delete: if hasMenuPermission('currencies');
+    }
+
+    match /currency_exchange_rates/{rateId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if hasMenuPermission('currency-exchange') || hasMenuPermission('currencies');
     }
 
     match /payment_methods/{methodId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdminOrAbove();
+      allow create, update, delete: if hasMenuPermission('payments');
     }
 
     match /currency_exchanges/{exchangeId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdminOrAbove();
+      allow create: if hasMenuPermission('currency-exchange');
+      allow update, delete: if hasMenuPermission('currencies') || hasMenuPermission('payments');
+    }
+
+    match /expenses/{expenseId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if hasMenuPermission('expenses');
     }
 
     match /inventory_movements/{movementId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdminOrAbove();
+      allow create: if hasLegacyOperationalAccess();
+      allow update, delete: if hasAdminPermission();
     }
 
     match /settings/{settingId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isAdminOrAbove();
+      allow create, update, delete: if hasMenuPermission('settings');
     }
 
     match /clients/{clientId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow delete: if isAdminOrAbove();
-      allow update: if isSignedIn();
+      allow create, update: if hasMenuPermission('client-debts') || hasMenuPermission('pos');
+      allow delete: if hasMenuPermission('client-debts');
+    }
+
+    match /suppliers/{supplierId} {
+      allow read: if isSignedIn();
+      allow create, update: if hasMenuPermission('suppliers') || hasMenuPermission('pending-invoices');
+      allow delete: if hasMenuPermission('suppliers');
     }
 
     match /cash_sessions/{sessionId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isAdminOrAbove();
+      allow create, update: if hasMenuPermission('pos') || hasMenuPermission('cash-closing');
+      allow delete: if hasAdminPermission();
     }
 
     match /cash_closures/{closureId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdminOrAbove();
+      allow create: if hasMenuPermission('cash-closing');
+      allow update, delete: if hasAdminPermission();
     }
 
     match /debts/{debtId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdminOrAbove();
+      allow create: if hasMenuPermission('client-debts') || hasMenuPermission('pos');
+      allow update: if hasMenuPermission('client-debts');
+      allow delete: if hasAdminPermission();
     }
 
     match /debt_payments/{paymentId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdminOrAbove();
+      allow create: if hasMenuPermission('client-debts');
+      allow update, delete: if hasAdminPermission();
     }
 
     match /loans/{loanId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdminOrAbove();
+      allow create, update: if hasMenuPermission('client-debts');
+      allow delete: if hasAdminPermission();
     }
 
     match /loan_payments/{paymentId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isAdminOrAbove();
+      allow create: if hasMenuPermission('client-debts');
+      allow update, delete: if hasAdminPermission();
     }
 
     match /purchase_invoices/{invoiceId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdminOrAbove();
+      allow create, update: if hasMenuPermission('pending-invoices') || hasMenuPermission('suppliers');
+      allow delete: if hasAdminPermission();
     }
 
     match /sales/{saleId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isAdminOrAbove();
+      allow create: if hasMenuPermission('pos');
+      allow update: if hasMenuPermission('sales-history') || hasMenuPermission('pos');
+      allow delete: if hasAdminPermission();
 
       match /items/{itemId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn();
-        allow update, delete: if isAdminOrAbove();
+        allow create: if hasMenuPermission('pos');
+        allow update, delete: if hasAdminPermission();
       }
 
       match /payments/{paymentId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn();
-        allow update, delete: if isAdminOrAbove();
+        allow create: if hasMenuPermission('pos') || hasMenuPermission('client-debts');
+        allow update, delete: if hasAdminPermission();
       }
     }
   }

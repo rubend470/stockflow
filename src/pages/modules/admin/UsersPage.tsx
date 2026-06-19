@@ -5,15 +5,15 @@ import { AppLayout } from '../../../components/layout/AppLayout'
 import { TableAction, TableActions } from '../../../components/ui/TableActions'
 import { useAuth } from '../../../context/AuthContext'
 import { useConfirm } from '../../../context/ConfirmContext'
-import { createUserByAdmin, sendPasswordReset } from '../../../services/authService'
+import { sendPasswordReset } from '../../../services/authService'
 import { deleteUser, listUsers, updateUser } from '../../../services/userService'
 import {
-  emptyUserForm,
   userFormFromUser,
   type AppUser,
   type UserFormInput,
 } from '../../../types/user'
-import { getAuthErrorMessage } from '../../../utils/authErrors'
+import { formatAppError } from '../../../utils/authErrors'
+import { userHasMenuPermission } from '../../../utils/menuPermissions'
 import { roleLabels } from '../../../utils/roles'
 
 function formatDate(value: string) {
@@ -25,7 +25,7 @@ function formatDate(value: string) {
 }
 
 export function UsersPage() {
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, refreshUser } = useAuth()
   const confirm = useConfirm()
   const [users, setUsers] = useState<AppUser[]>([])
   const [loading, setLoading] = useState(true)
@@ -33,9 +33,8 @@ export function UsersPage() {
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
-  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
   const [editingUser, setEditingUser] = useState<AppUser | null>(null)
-  const [formValues, setFormValues] = useState<UserFormInput>(emptyUserForm())
+  const [formValues, setFormValues] = useState<UserFormInput | null>(null)
 
   useEffect(() => {
     loadUsers()
@@ -55,65 +54,47 @@ export function UsersPage() {
     }
   }
 
-  function openCreateModal() {
-    setModalMode('create')
-    setEditingUser(null)
-    setFormValues(emptyUserForm())
-    setModalOpen(true)
-  }
-
   function openEditModal(user: AppUser) {
-    setModalMode('edit')
     setEditingUser(user)
     setFormValues(userFormFromUser(user))
     setModalOpen(true)
   }
 
   async function handleSubmit(values: UserFormInput) {
+    if (!editingUser) return
+
     setSubmitting(true)
     setError('')
     setMessage('')
 
     try {
-      if (modalMode === 'create') {
-        const created = await createUserByAdmin({
-          name: values.name,
-          email: values.email,
-          password: values.password,
-          role: values.role,
-          active: values.active,
-        })
-        setUsers((current) =>
-          [...current, created].sort((a, b) => a.name.localeCompare(b.name, 'es')),
-        )
-        setMessage(`Usuario ${created.name} creado correctamente.`)
-      } else if (editingUser) {
-        const isSelf = editingUser.uid === currentUser?.uid
-        await updateUser(editingUser.uid, {
-          name: values.name.trim(),
-          role: isSelf ? editingUser.role : values.role,
-          active: isSelf ? editingUser.active : values.active,
-        })
-        setUsers((current) =>
-          current.map((item) =>
-            item.uid === editingUser.uid
-              ? {
-                  ...item,
-                  name: values.name.trim(),
-                  role: isSelf ? item.role : values.role,
-                  active: isSelf ? item.active : values.active,
-                }
-              : item,
-          ),
-        )
-        setMessage('Usuario actualizado correctamente.')
+      const isSelf = editingUser.uid === currentUser?.uid
+      await updateUser(editingUser.uid, {
+        name: values.name.trim(),
+        role: isSelf ? editingUser.role : values.role,
+        active: isSelf ? editingUser.active : values.active,
+        menuPermissions: values.menuPermissions,
+      })
+      setUsers((current) =>
+        current.map((item) =>
+          item.uid === editingUser.uid
+            ? {
+                ...item,
+                name: values.name.trim(),
+                role: isSelf ? item.role : values.role,
+                active: isSelf ? item.active : values.active,
+                menuPermissions: values.menuPermissions,
+              }
+            : item,
+        ),
+      )
+      setMessage('Usuario actualizado correctamente.')
+      if (isSelf) {
+        await refreshUser()
       }
-
       setModalOpen(false)
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : getAuthErrorMessage(err) || 'No se pudo guardar el usuario.',
-      )
+      setError(formatAppError(err, 'No se pudo guardar el usuario.'))
     } finally {
       setSubmitting(false)
     }
@@ -134,7 +115,7 @@ export function UsersPage() {
       await sendPasswordReset(user.email)
       setMessage(`Correo de restablecimiento enviado a ${user.email}.`)
     } catch (err) {
-      setError(getAuthErrorMessage(err))
+      setError(formatAppError(err))
     }
   }
 
@@ -164,32 +145,21 @@ export function UsersPage() {
     }
   }
 
-  if (currentUser?.role !== 'super_admin') {
+  if (!currentUser || !userHasMenuPermission(currentUser, 'users')) {
     return <Navigate to="/" replace />
   }
 
   return (
-    <AppLayout title="Usuarios" subtitle="Crea cuentas, asigna roles y gestiona el acceso">
+    <AppLayout title="Usuarios" subtitle="Gestiona accesos, roles y permisos del menú">
       <section className="users-panel">
         <div className="users-panel-header">
           <div>
             <h2>Equipo del sistema</h2>
-            <p>
-              Crea usuarios nuevos, cambia roles y activa o desactiva el acceso. Solo Super Admin
-              puede administrar cuentas.
-            </p>
+            <p>Edita permisos del menú, roles y activa o desactiva cuentas del equipo.</p>
           </div>
           <div className="finance-panel-actions">
             <button type="button" className="users-refresh" onClick={loadUsers} disabled={loading}>
               Actualizar
-            </button>
-            <button
-              type="button"
-              className="finance-btn finance-btn-primary"
-              onClick={openCreateModal}
-              disabled={loading || submitting}
-            >
-              Nuevo usuario
             </button>
           </div>
         </div>
@@ -202,7 +172,7 @@ export function UsersPage() {
         ) : users.length === 0 ? (
           <div className="users-empty">
             <strong>Sin usuarios registrados</strong>
-            <p>Crea el primer usuario con el botón <strong>Nuevo usuario</strong>.</p>
+            <p>Los usuarios aparecerán aquí cuando se registren en el sistema.</p>
           </div>
         ) : (
           <div className="users-table-wrap">
@@ -264,15 +234,17 @@ export function UsersPage() {
         )}
       </section>
 
-      <UserFormModal
-        open={modalOpen}
-        mode={modalMode}
-        initialValues={formValues}
-        submitting={submitting}
-        isSelf={editingUser?.uid === currentUser.uid}
-        onClose={() => setModalOpen(false)}
-        onSubmit={handleSubmit}
-      />
+      {formValues && (
+        <UserFormModal
+          open={modalOpen}
+          mode="edit"
+          initialValues={formValues}
+          submitting={submitting}
+          isSelf={editingUser?.uid === currentUser.uid}
+          onClose={() => setModalOpen(false)}
+          onSubmit={handleSubmit}
+        />
+      )}
     </AppLayout>
   )
 }

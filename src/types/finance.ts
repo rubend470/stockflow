@@ -7,12 +7,17 @@ export interface Currency {
   isBase: boolean
 }
 
+export type ExchangeRateOperation = 'multiply' | 'divide'
+export type ExchangeRateCalculationMode = 'ratio' | 'operation'
+
 export interface ExchangeRate {
   id: string
   fromCurrency: string
   toCurrency: string
   fromAmount: number
   toAmount: number
+  operation: ExchangeRateOperation
+  calculationMode: ExchangeRateCalculationMode
   effectiveDate: string
 }
 
@@ -48,6 +53,7 @@ export interface ExchangeRateFormInput {
   toCurrency: string
   fromAmount: number
   toAmount: number
+  operation: ExchangeRateOperation
 }
 
 export const emptyExchangeRateForm = (
@@ -58,14 +64,26 @@ export const emptyExchangeRateForm = (
   toCurrency,
   fromAmount: 1,
   toAmount: 1,
+  operation: 'multiply',
 })
 
 export function exchangeRateFormFromRate(rate: ExchangeRate): ExchangeRateFormInput {
+  if (rate.calculationMode === 'ratio') {
+    return {
+      fromCurrency: rate.fromCurrency,
+      toCurrency: rate.toCurrency,
+      fromAmount: 1,
+      toAmount: rate.toAmount / rate.fromAmount,
+      operation: 'multiply',
+    }
+  }
+
   return {
     fromCurrency: rate.fromCurrency,
     toCurrency: rate.toCurrency,
     fromAmount: rate.fromAmount,
     toAmount: rate.toAmount,
+    operation: rate.operation,
   }
 }
 

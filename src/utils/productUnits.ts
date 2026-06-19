@@ -1,4 +1,5 @@
 import type { Product, ProductFormInput, SaleMode, SoldBy } from '../types/product'
+import { normalizeBarcode } from './barcode'
 import { formatBaseMoney } from './formatMoney'
 
 export type StockInputMode = 'units' | 'bundles'
@@ -45,10 +46,12 @@ export function normalizeProductInput(input: ProductFormInput) {
   const linkedToCategory = Boolean(input.stockCategoryId?.trim())
   const stock = linkedToCategory ? 0 : input.stock
   const minStock = linkedToCategory ? 0 : input.minStock
+  const barcode = normalizeBarcode(input.barcode)
 
   if (!input.allowsBundle) {
     return {
       ...input,
+      barcode,
       stockCategoryId: input.stockCategoryId?.trim() || undefined,
       costPrice: linkedToCategory ? 0 : input.costPrice,
       unitsPerBundle: null,
@@ -70,6 +73,7 @@ export function normalizeProductInput(input: ProductFormInput) {
 
   return {
     ...input,
+    barcode,
     stockCategoryId: input.stockCategoryId?.trim() || undefined,
     costPrice: linkedToCategory ? 0 : input.costPrice,
     unitLabel: input.soldBy === 'weight' ? input.unitLabel : input.unitLabel || 'und',

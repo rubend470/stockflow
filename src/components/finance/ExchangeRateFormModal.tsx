@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { MoneyInput } from '../ui/MoneyInput'
 import type { Currency, ExchangeRateFormInput } from '../../types/finance'
 import { ModalFrame } from '../ui/ModalFrame'
+import { formatDecimalColombian, parseMoneyInput } from '../../utils/formatMoney'
 
 interface ExchangeRateFormModalProps {
   open: boolean
@@ -35,8 +36,12 @@ export function ExchangeRateFormModal({
   const activeCurrencies = currencies.filter((currency) => currency.active)
 
   function handleSubmit() {
-    onSubmit(values)
+    onSubmit({ ...values, fromAmount: 1 })
   }
+
+  const rateValue = values.toAmount > 0 ? values.toAmount : 0
+  const operationLabel = values.operation === 'divide' ? 'divide entre' : 'multiplica por'
+  const operationSymbol = values.operation === 'divide' ? '÷' : '×'
 
   return (
     <ModalFrame onClose={onClose} closeDisabled={submitting}>
@@ -88,28 +93,29 @@ export function ExchangeRateFormModal({
           </label>
 
           <label className="finance-field">
-            <span>Monto origen</span>
-            <MoneyInput
-              min="0.01"
-              value={values.fromAmount}
-              onChange={(next) => {
-                const parsed = next.trim() === '' ? 0 : Number(next)
+            <span>Tipo de cálculo</span>
+            <select
+              value={values.operation}
+              onChange={(event) =>
                 setValues((current) => ({
                   ...current,
-                  fromAmount: Number.isFinite(parsed) ? parsed : current.fromAmount,
+                  operation: event.target.value === 'divide' ? 'divide' : 'multiply',
                 }))
-              }}
+              }
               disabled={submitting}
-            />
+            >
+              <option value="multiply">Multiplicar por la tasa</option>
+              <option value="divide">Dividir entre la tasa</option>
+            </select>
           </label>
 
           <label className="finance-field">
-            <span>Monto destino</span>
+            <span>Tasa</span>
             <MoneyInput
               min="0.01"
               value={values.toAmount}
               onChange={(next) => {
-                const parsed = next.trim() === '' ? 0 : Number(next)
+                const parsed = parseMoneyInput(next)
                 setValues((current) => ({
                   ...current,
                   toAmount: Number.isFinite(parsed) ? parsed : current.toAmount,
@@ -120,18 +126,15 @@ export function ExchangeRateFormModal({
           </label>
 
           <div className="finance-field finance-field-full finance-rate-preview">
-            {values.fromCurrency && values.toCurrency && values.fromAmount > 0 && values.toAmount > 0 ? (
+            {values.fromCurrency && values.toCurrency && values.toAmount > 0 ? (
               <span>
-                <strong>
-                  {values.fromAmount} {values.fromCurrency}
-                </strong>{' '}
-                ={' '}
-                <strong>
-                  {values.toAmount} {values.toCurrency}
-                </strong>
+                Monto en <strong>{values.fromCurrency}</strong> se {operationLabel}{' '}
+                <strong>{formatDecimalColombian(rateValue)}</strong> para obtener{' '}
+                <strong>{values.toCurrency}</strong>. Formula: monto {operationSymbol}{' '}
+                {formatDecimalColombian(rateValue)}.
               </span>
             ) : (
-              <span>Completa ambas monedas y los montos.</span>
+              <span>Completa ambas monedas y la tasa.</span>
             )}
           </div>
         </div>

@@ -36,6 +36,7 @@ import type { Currency, ExchangeRate, PaymentMethod } from '../../../types/finan
 import type { LoanBorrowerAccount } from '../../../types/loan'
 import { MoneyInput } from '../../../components/ui/MoneyInput'
 import { formatBaseMoney, parseMoneyInput } from '../../../utils/formatMoney'
+import { userHasMenuPermission } from '../../../utils/menuPermissions'
 
 type DebtsTab = 'debts' | 'loans'
 
@@ -69,7 +70,7 @@ export function DebtsPage() {
   const [dueDate, setDueDate] = useState('')
   const [notes, setNotes] = useState('')
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = userHasMenuPermission(user, 'client-debts')
 
   useEffect(() => {
     loadData()

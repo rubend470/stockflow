@@ -36,7 +36,7 @@ function movementLabel(entry: LoanHistoryEntry) {
 
 function statusLabel(entry: LoanHistoryEntry) {
   if (entry.kind === 'payment') {
-    return entry.createdByName ? `Por ${entry.createdByName}` : 'Abono'
+    return 'Abono'
   }
 
   if (entry.status === 'paid') return 'Pagado'
@@ -139,6 +139,7 @@ export function LoanDetailModal({
                     <th>Movimiento</th>
                     <th>Monto</th>
                     <th>Estado</th>
+                    <th>Usuario</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -178,6 +179,7 @@ export function LoanDetailModal({
                           {statusLabel(entry)}
                         </span>
                       </td>
+                      <td>{entry.kind === 'payment' ? entry.createdByName || '—' : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

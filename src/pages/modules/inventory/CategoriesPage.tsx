@@ -20,6 +20,7 @@ import {
   type StockCategory,
   type StockCategoryFormInput,
 } from '../../../types/stockCategory'
+import { userHasMenuPermission } from '../../../utils/menuPermissions'
 
 function categoryFormFromCategory(category: StockCategory): StockCategoryFormInput {
   return {
@@ -47,7 +48,7 @@ export function CategoriesPage() {
   const [entryQuantity, setEntryQuantity] = useState('50')
   const [entryNotes, setEntryNotes] = useState('')
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = userHasMenuPermission(user, 'categories')
 
   useEffect(() => {
     loadData()

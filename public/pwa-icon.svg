@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="StockFlow">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="58" x2="432" y2="454" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6ee7b7"/>
+      <stop offset="0.48" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="150" y1="142" x2="363" y2="371" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d1fae5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="#0f172a"/>
+  <rect x="54" y="54" width="404" height="404" rx="92" fill="url(#bg)"/>
+  <path fill="url(#mark)" d="M151 173c0-18 15-33 33-33h144c18 0 33 15 33 33v39H151v-39Zm0 70h210v96c0 18-15 33-33 33H184c-18 0-33-15-33-33v-96Zm47 39v37h116v-37H198Z"/>
+  <path fill="#064e3b" opacity=".28" d="M151 212h210v31H151z"/>
+</svg>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { ExchangeRateFormModal } from '../../../components/finance/ExchangeRateFormModal'
 import { AppLayout } from '../../../components/layout/AppLayout'
 import { PanelRefreshOverlay } from '../../../components/ui/PanelRefreshOverlay'
 import { TableAction, TableActions } from '../../../components/ui/TableActions'
@@ -10,17 +11,21 @@ import { usePagination } from '../../../hooks/usePagination'
 import { usePanelLoader } from '../../../hooks/usePanelLoader'
 import {
   createCurrencyExchange,
+  createCurrencyExchangeRate,
+  deleteCurrencyExchangeRate,
   deleteCurrencyExchange,
+  listLatestCurrencyExchangeRates,
   listCurrencyExchanges,
+  updateCurrencyExchangeRate,
 } from '../../../services/currencyExchangeService'
 import {
   buildExchangeRateSnapshot,
   convertCurrencySmart,
   describeConversion,
   ensureFinanceDefaults,
+  formatExchangeRateLabel,
   getBaseCurrency,
   listCurrencies,
-  listLatestExchangeRates,
   listPaymentMethods,
 } from '../../../services/financeService'
 import type { CurrencyExchange } from '../../../types/currencyExchange'
@@ -28,6 +33,9 @@ import {
   pickDefaultPaymentMethod,
   type Currency,
   type ExchangeRate,
+  emptyExchangeRateForm,
+  exchangeRateFormFromRate,
+  type ExchangeRateFormInput,
   type PaymentMethod,
 } from '../../../types/finance'
 import { MoneyInput } from '../../../components/ui/MoneyInput'
@@ -37,6 +45,7 @@ import {
   parseMoneyInput,
   roundMoney,
 } from '../../../utils/formatMoney'
+import { userHasAnyMenuPermission } from '../../../utils/menuPermissions'
 
 function formatDate(value: string) {
   if (!value) return '—'
@@ -72,9 +81,16 @@ export function CurrencyExchangePage() {
   const [exchanges, setExchanges] = useState<CurrencyExchange[]>([])
   const { loading, refreshing, run } = usePanelLoader()
   const [submitting, setSubmitting] = useState(false)
+  const [rateSubmitting, setRateSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [search, setSearch] = useState('')
+  const [rateModalOpen, setRateModalOpen] = useState(false)
+  const [rateModalMode, setRateModalMode] = useState<'create' | 'edit'>('create')
+  const [editingRate, setEditingRate] = useState<ExchangeRate | null>(null)
+  const [rateFormValues, setRateFormValues] = useState<ExchangeRateFormInput>(
+    emptyExchangeRateForm(),
+  )
 
   const [cashInCurrency, setCashInCurrency] = useState('')
   const [cashOutCurrency, setCashOutCurrency] = useState('')
@@ -88,7 +104,8 @@ export function CurrencyExchangePage() {
   const [notes, setNotes] = useState('')
   const [deletingId, setDeletingId] = useState('')
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = userHasAnyMenuPermission(user, ['currencies', 'payments'])
+  const canManageRates = userHasAnyMenuPermission(user, ['currency-exchange', 'currencies'])
 
   const baseCurrency = useMemo(() => getBaseCurrency(currencies), [currencies])
   const baseCurrencyCode = baseCurrency?.code ?? DEFAULT_BASE_CURRENCY_CODE
@@ -142,7 +159,7 @@ export function CurrencyExchangePage() {
 
         const [currencyList, rateList, methodList, exchangeList] = await Promise.all([
           listCurrencies(),
-          listLatestExchangeRates(),
+          listLatestCurrencyExchangeRates(),
           listPaymentMethods(),
           listCurrencyExchanges(),
         ])
@@ -271,6 +288,78 @@ export function CurrencyExchangePage() {
     setCashOutReference('')
     setClientName('')
     setNotes('')
+  }
+
+  function openRateModal() {
+    const firstForeign = currencies.find((currency) => !currency.isBase && currency.active)
+    setRateModalMode('create')
+    setEditingRate(null)
+    setRateFormValues(
+      emptyExchangeRateForm(firstForeign?.code ?? '', baseCurrencyCode),
+    )
+    setRateModalOpen(true)
+  }
+
+  function openEditRateModal(rate: ExchangeRate) {
+    setRateModalMode('edit')
+    setEditingRate(rate)
+    setRateFormValues(exchangeRateFormFromRate(rate))
+    setRateModalOpen(true)
+  }
+
+  async function handleSaveRate(values: ExchangeRateFormInput) {
+    if (!user || !canManageRates) return
+
+    setRateSubmitting(true)
+    setError('')
+    setMessage('')
+
+    try {
+      if (rateModalMode === 'create') {
+        await createCurrencyExchangeRate(values, user.uid)
+        const operationLabel = values.operation === 'divide' ? 'dividir entre' : 'multiplicar por'
+        setMessage(
+          `Tasa de cambio guardada: ${values.fromCurrency} → ${values.toCurrency}, ${operationLabel} ${values.toAmount}.`,
+        )
+      } else if (editingRate) {
+        await updateCurrencyExchangeRate(editingRate.id, values)
+        const operationLabel = values.operation === 'divide' ? 'dividir entre' : 'multiplicar por'
+        setMessage(
+          `Tasa de cambio actualizada: ${values.fromCurrency} → ${values.toCurrency}, ${operationLabel} ${values.toAmount}.`,
+        )
+      }
+
+      setRateModalOpen(false)
+      setEditingRate(null)
+      await loadData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar la tasa de cambio.')
+    } finally {
+      setRateSubmitting(false)
+    }
+  }
+
+  async function handleDeleteRate(rate: ExchangeRate) {
+    if (!canManageRates) return
+
+    const confirmed = await confirm({
+      title: 'Eliminar tasa de cambio',
+      message: `¿Eliminar la tasa ${formatExchangeRateLabel(rate)}? Esta acción no afecta las tasas del sistema.`,
+      confirmLabel: 'Sí, eliminar',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+
+    setError('')
+    setMessage('')
+
+    try {
+      await deleteCurrencyExchangeRate(rate.id)
+      setRates((current) => current.filter((item) => item.id !== rate.id))
+      setMessage('Tasa de cambio eliminada.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar la tasa.')
+    }
   }
 
   async function handleDelete(exchange: CurrencyExchange) {
@@ -444,9 +533,20 @@ export function CurrencyExchangePage() {
                 Indica qué dinero entró a caja, cómo entró, qué salió y por qué forma de pago.
               </p>
             </div>
-            <button type="button" className="finance-btn finance-btn-secondary" onClick={loadData}>
-              Actualizar tasas
-            </button>
+            <div className="finance-panel-actions">
+              <button type="button" className="finance-btn finance-btn-secondary" onClick={loadData}>
+                Actualizar
+              </button>
+              {canManageRates && (
+                <button
+                  type="button"
+                  className="finance-btn finance-btn-primary"
+                  onClick={openRateModal}
+                >
+                  Nueva tasa de cambio
+                </button>
+              )}
+            </div>
           </div>
 
           {error && <div className="alert alert-error">{error}</div>}
@@ -596,7 +696,7 @@ export function CurrencyExchangePage() {
                     </p>
                   </>
                 ) : (
-                  <p>Ingresa un monto de entrada para ver la conversión según la tasa del día.</p>
+              <p>Ingresa un monto de entrada para ver la conversión según la tasa de cambio.</p>
                 )}
               </div>
 
@@ -687,6 +787,67 @@ export function CurrencyExchangePage() {
           </p>
         </aside>
       </div>
+
+      <section className="finance-panel finance-panel-spaced">
+        <div className="finance-panel-header">
+          <div>
+            <h2>Tasas para cambios</h2>
+            <p>
+              Estas tasas son exclusivas de casa de cambio. No modifican las tasas del sistema
+              usadas en ventas, productos o compras.
+            </p>
+          </div>
+          {canManageRates && (
+            <button type="button" className="finance-btn finance-btn-primary" onClick={openRateModal}>
+              Nueva tasa
+            </button>
+          )}
+        </div>
+
+        {rates.length === 0 ? (
+          <div className="finance-empty">
+            <strong>Sin tasas de cambio configuradas</strong>
+            <p>
+              Agrega una tasa para poder registrar operaciones de cambio sin usar las tasas del
+              sistema.
+            </p>
+          </div>
+        ) : (
+          <div className="finance-table-wrap">
+            <table className="finance-table">
+              <thead>
+                <tr>
+                  <th>Conversión</th>
+                  <th>Actualizado</th>
+                  {canManageRates && <th className="table-actions-col">Acciones</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {rates.map((rate) => (
+                  <tr key={rate.id}>
+                    <td>
+                      <strong>{formatExchangeRateLabel(rate)}</strong>
+                    </td>
+                    <td>{formatDate(rate.effectiveDate)}</td>
+                    {canManageRates && (
+                      <td className="table-actions-col">
+                        <TableActions>
+                          <TableAction icon="edit" onClick={() => openEditRateModal(rate)}>
+                            Editar
+                          </TableAction>
+                          <TableAction icon="delete" tone="danger" onClick={() => handleDeleteRate(rate)}>
+                            Eliminar
+                          </TableAction>
+                        </TableActions>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="finance-panel finance-panel-spaced" style={{ position: 'relative' }}>
         <div className="finance-panel-header">
@@ -799,6 +960,17 @@ export function CurrencyExchangePage() {
           </>
         )}
       </section>
+
+      <ExchangeRateFormModal
+        open={rateModalOpen}
+        mode={rateModalMode}
+        currencies={currencies}
+        baseCurrencyCode={baseCurrencyCode}
+        initialValues={rateFormValues}
+        submitting={rateSubmitting}
+        onClose={() => setRateModalOpen(false)}
+        onSubmit={handleSaveRate}
+      />
     </AppLayout>
   )
 }

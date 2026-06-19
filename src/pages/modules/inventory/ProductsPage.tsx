@@ -28,6 +28,7 @@ import {
 } from '../../../types/product'
 import { formatBaseMoney } from '../../../utils/formatMoney'
 import { formatProductPrices, formatStockSummary, getProductSaleSummary } from '../../../utils/productUnits'
+import { userCanViewCost, userHasMenuPermission } from '../../../utils/menuPermissions'
 
 const typeLabels = {
   abasto: 'Abasto',
@@ -49,8 +50,8 @@ export function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [formValues, setFormValues] = useState<ProductFormInput>(emptyProductForm())
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
-  const canViewCost = user?.role !== 'cashier'
+  const canManage = userHasMenuPermission(user, 'add-product')
+  const canViewCost = userCanViewCost(user)
 
   useEffect(() => {
     loadProducts()

@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore'
 import { auth, db, firebaseConfig } from '../lib/firebase'
 import type { AppUser, UserRole } from '../types/user'
+import { getAllMenuPermissionIds, getDefaultMenuPermissionsForRole, normalizeMenuPermissions } from '../utils/menuPermissions'
 
 export interface CreateUserByAdminInput {
   name: string
@@ -27,6 +28,7 @@ export interface CreateUserByAdminInput {
   password: string
   role: UserRole
   active: boolean
+  menuPermissions: string[]
 }
 
 export async function login(email: string, password: string) {
@@ -46,12 +48,17 @@ export async function register(name: string, email: string, password: string) {
   await updateProfile(credential.user, { displayName: name })
 
   const role = await resolveInitialRole()
+  const menuPermissions =
+    role === 'super_admin'
+      ? getAllMenuPermissionIds()
+      : getDefaultMenuPermissionsForRole(role)
   const profile: AppUser = {
     uid: credential.user.uid,
     name,
     email,
     role,
     active: true,
+    menuPermissions,
     createdAt: new Date().toISOString(),
   }
 
@@ -60,6 +67,7 @@ export async function register(name: string, email: string, password: string) {
     email,
     role,
     active: true,
+    menuPermissions,
     createdAt: serverTimestamp(),
   })
 
@@ -94,6 +102,10 @@ export async function createUserByAdmin(input: CreateUserByAdminInput): Promise<
       email,
       role: input.role,
       active: input.active,
+      menuPermissions:
+        input.role === 'super_admin'
+          ? getAllMenuPermissionIds()
+          : normalizeMenuPermissions(input.menuPermissions),
       createdAt: serverTimestamp(),
     })
 
@@ -103,6 +115,10 @@ export async function createUserByAdmin(input: CreateUserByAdminInput): Promise<
       email,
       role: input.role,
       active: input.active,
+      menuPermissions:
+        input.role === 'super_admin'
+          ? getAllMenuPermissionIds()
+          : normalizeMenuPermissions(input.menuPermissions),
       createdAt: new Date().toISOString(),
     }
   } finally {
@@ -120,12 +136,17 @@ export async function getUserProfile(uid: string): Promise<AppUser | null> {
   if (!snapshot.exists()) return null
 
   const data = snapshot.data()
+  const menuPermissions = Array.isArray(data.menuPermissions)
+    ? normalizeMenuPermissions(data.menuPermissions.map(String))
+    : undefined
+
   return {
     uid,
     name: data.name,
     email: data.email,
     role: data.role as UserRole,
     active: data.active !== false,
+    menuPermissions,
     createdAt: data.createdAt?.toDate?.()?.toISOString() ?? data.createdAt,
   }
 }

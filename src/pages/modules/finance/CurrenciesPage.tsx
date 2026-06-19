@@ -30,6 +30,7 @@ import {
   type ExchangeRate,
   type ExchangeRateFormInput,
 } from '../../../types/finance'
+import { userHasMenuPermission } from '../../../utils/menuPermissions'
 
 function formatDate(value: string) {
   if (!value) return '—'
@@ -57,7 +58,7 @@ export function CurrenciesPage() {
   const [editingRate, setEditingRate] = useState<ExchangeRate | null>(null)
   const [rateFormValues, setRateFormValues] = useState<ExchangeRateFormInput>(emptyExchangeRateForm())
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = userHasMenuPermission(user, 'currencies')
 
   useEffect(() => {
     loadData()
@@ -173,13 +174,15 @@ export function CurrenciesPage() {
     try {
       if (rateModalMode === 'create') {
         await createExchangeRate(values, user.uid)
+        const operationLabel = values.operation === 'divide' ? 'dividir entre' : 'multiplicar por'
         setMessage(
-          `Tasa guardada: ${values.fromAmount} ${values.fromCurrency} = ${values.toAmount} ${values.toCurrency}.`,
+          `Tasa guardada: ${values.fromCurrency} → ${values.toCurrency}, ${operationLabel} ${values.toAmount}.`,
         )
       } else if (editingRate) {
         await updateExchangeRate(editingRate.id, values)
+        const operationLabel = values.operation === 'divide' ? 'dividir entre' : 'multiplicar por'
         setMessage(
-          `Tasa actualizada: ${values.fromAmount} ${values.fromCurrency} = ${values.toAmount} ${values.toCurrency}.`,
+          `Tasa actualizada: ${values.fromCurrency} → ${values.toCurrency}, ${operationLabel} ${values.toAmount}.`,
         )
       }
 

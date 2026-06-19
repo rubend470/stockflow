@@ -19,6 +19,7 @@ import { deleteSale, getSaleItems, getSalePayments, listSales } from '../../../s
 import type { Sale, SaleItem, SalePayment } from '../../../types/sale'
 import { isOnLocalDate, todayDateInputValue } from '../../../utils/dates'
 import { formatBaseMoney } from '../../../utils/formatMoney'
+import { userCanViewProfit, userHasAnyMenuPermission } from '../../../utils/menuPermissions'
 
 function formatDate(value: string) {
   if (!value) return '—'
@@ -70,8 +71,8 @@ export function SalesHistoryPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
 
-  const canViewProfit = user?.role !== 'cashier'
-  const canDeleteForTesting = user?.role === 'super_admin' || user?.role === 'admin'
+  const canViewProfit = userCanViewProfit(user)
+  const canDeleteForTesting = userHasAnyMenuPermission(user, ['settings', 'users'])
 
   useEffect(() => {
     loadSales()
@@ -288,6 +289,7 @@ export function SalesHistoryPage() {
                 <tr>
                   <th>Fecha</th>
                   <th>Nº venta</th>
+                  <th>Cajero</th>
                   <th>Cliente</th>
                   <th>Total</th>
                   <th>En caja</th>
@@ -308,6 +310,7 @@ export function SalesHistoryPage() {
                     <td>
                       <strong>{sale.number}</strong>
                     </td>
+                    <td>{sale.cashierName || '—'}</td>
                     <td>{sale.clientName ?? '—'}</td>
                     <td>
                       <MoneyText amount={sale.total} />

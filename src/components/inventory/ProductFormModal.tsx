@@ -11,6 +11,8 @@ interface ProductFormModalProps {
   stockCategories?: StockCategory[]
   canViewCost: boolean
   submitting: boolean
+  nested?: boolean
+  fromPurchaseEntry?: boolean
   onClose: () => void
   onSubmit: (values: ProductFormInput) => void
 }
@@ -22,6 +24,8 @@ export function ProductFormModal({
   stockCategories = [],
   canViewCost,
   submitting,
+  nested = false,
+  fromPurchaseEntry = false,
   onClose,
   onSubmit,
 }: ProductFormModalProps) {
@@ -34,24 +38,44 @@ export function ProductFormModal({
   if (!open) return null
 
   return (
-    <div className="inventory-modal-backdrop" onClick={onClose}>
-      <div className="inventory-modal inventory-modal-wide" onClick={(event) => event.stopPropagation()}>
-        <ModalCloseButton onClick={onClose} />
-        <div className="inventory-modal-header">
+    <div
+      className={[
+        'inventory-modal-backdrop',
+        nested ? 'inventory-modal-backdrop-nested' : undefined,
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      onClick={onClose}
+    >
+      <div
+        className="inventory-modal inventory-modal-wide inventory-modal-scrollable"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <ModalCloseButton onClick={onClose} disabled={submitting} />
+        <div className="inventory-modal-header inventory-modal-header-fixed">
           <h2>{mode === 'create' ? 'Nuevo producto' : 'Editar producto'}</h2>
-          <p>Completa la información del catálogo para usarlo al vender.</p>
+          <p>
+            {fromPurchaseEntry
+              ? 'Completa categoría, precios y si se vende al mayor. El stock lo suma la entrada de mercancía.'
+              : mode === 'create'
+                ? 'Define nombre, categoría, precios y si se vende al mayor.'
+                : 'Completa la información del catálogo para usarlo al vender.'}
+          </p>
         </div>
 
-        <ProductForm
-          key={formKey}
-          initialValues={initialValues}
-          stockCategories={stockCategories}
-          canViewCost={canViewCost}
-          submitting={submitting}
-          submitLabel={mode === 'create' ? 'Crear producto' : 'Guardar cambios'}
-          onCancel={onClose}
-          onSubmit={onSubmit}
-        />
+        <div className="inventory-modal-body">
+          <ProductForm
+            key={formKey}
+            initialValues={initialValues}
+            stockCategories={stockCategories}
+            canViewCost={canViewCost}
+            submitting={submitting}
+            omitStockFields={fromPurchaseEntry}
+            submitLabel={mode === 'create' ? 'Crear producto' : 'Guardar cambios'}
+            onCancel={onClose}
+            onSubmit={onSubmit}
+          />
+        </div>
       </div>
     </div>
   )

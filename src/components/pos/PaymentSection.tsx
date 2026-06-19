@@ -350,7 +350,7 @@ export function PaymentSection({
       )}
 
       <div className="pos-payment-totals">
-        <div>
+        <div className="pos-payment-total-primary">
           <span>Total venta</span>
           <strong>
             <MoneyText amount={totalDue} />

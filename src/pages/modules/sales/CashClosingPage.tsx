@@ -15,6 +15,7 @@ import {
 import type { CashClosure } from '../../../types/cashClosure'
 import { getExpectedCashInBase } from '../../../utils/cashClosure'
 import { formatClosureDate, formatDateTime } from '../../../utils/dates'
+import { userHasAnyMenuPermission } from '../../../utils/menuPermissions'
 
 export function CashClosingPage() {
   const { user } = useAuth()
@@ -28,7 +29,7 @@ export function CashClosingPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [selectedClosure, setSelectedClosure] = useState<CashClosure | null>(null)
 
-  const canDelete = user?.role === 'super_admin' || user?.role === 'admin'
+  const canDelete = userHasAnyMenuPermission(user, ['settings', 'users'])
 
   useEffect(() => {
     loadClosures()

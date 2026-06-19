@@ -12,7 +12,6 @@ import {
   DebtsPage,
   AddProductPage,
   CategoriesPage,
-  MovementsPage,
   PaymentsPage,
   PendingInvoicesPage,
   PosPage,
@@ -20,8 +19,9 @@ import {
   ReportsPage,
   SalesHistoryPage,
   CashClosingPage,
+  ExpensesPage,
   SettingsPage,
-  StockPage,
+  SuppliersPage,
   UsersPage,
 } from './pages/modules'
 import './App.css'
@@ -51,11 +51,13 @@ function App() {
             <Route path="/inventario/productos" element={<ProductsPage />} />
             <Route path="/inventario/productos/nuevo" element={<AddProductPage />} />
             <Route path="/inventario/categorias" element={<CategoriesPage />} />
-            <Route path="/inventario/stock" element={<StockPage />} />
-            <Route path="/inventario/movimientos" element={<MovementsPage />} />
+            <Route path="/inventario/stock" element={<Navigate to="/inventario/productos" replace />} />
+            <Route path="/inventario/movimientos" element={<Navigate to="/inventario/productos" replace />} />
+            <Route path="/inventario/proveedores" element={<SuppliersPage />} />
             <Route path="/clientes/directorio" element={<Navigate to="/clientes/deudas" replace />} />
             <Route path="/clientes/deudas" element={<DebtsPage />} />
             <Route path="/finanzas/cambio" element={<CurrencyExchangePage />} />
+            <Route path="/finanzas/gastos" element={<ExpensesPage />} />
             <Route path="/finanzas/monedas" element={<CurrenciesPage />} />
             <Route path="/finanzas/pagos" element={<PaymentsPage />} />
             <Route path="/reportes" element={<ReportsPage />} />

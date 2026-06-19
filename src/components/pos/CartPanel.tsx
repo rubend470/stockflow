@@ -21,6 +21,7 @@ export function CartPanel({
     <div className="pos-cart">
       {items.length === 0 ? (
         <div className="pos-cart-empty">
+          <strong>Carrito listo</strong>
           <p>Agrega productos escaneando o buscando por nombre o código.</p>
         </div>
       ) : (

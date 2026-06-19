@@ -22,6 +22,7 @@ import {
   type PaymentMethod,
   type PaymentMethodFormInput,
 } from '../../../types/finance'
+import { userHasMenuPermission } from '../../../utils/menuPermissions'
 
 export function PaymentsPage() {
   const { user } = useAuth()
@@ -37,7 +38,7 @@ export function PaymentsPage() {
   const [formValues, setFormValues] = useState<PaymentMethodFormInput>(emptyPaymentMethodForm())
   const [editingMethod, setEditingMethod] = useState<PaymentMethod | null>(null)
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = userHasMenuPermission(user, 'payments')
 
   useEffect(() => {
     loadData()

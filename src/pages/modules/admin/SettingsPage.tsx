@@ -7,6 +7,7 @@ import { useAuth } from '../../../context/AuthContext'
 import { getBaseCurrency, listCurrencies } from '../../../services/financeService'
 import { getAppSettings, updateAppSettings } from '../../../services/settingsService'
 import { emptyAppSettingsForm, type AppSettingsFormInput } from '../../../types/settings'
+import { userHasMenuPermission } from '../../../utils/menuPermissions'
 
 export function SettingsPage() {
   const { user } = useAuth()
@@ -17,7 +18,7 @@ export function SettingsPage() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = userHasMenuPermission(user, 'settings')
 
   useEffect(() => {
     loadSettings()

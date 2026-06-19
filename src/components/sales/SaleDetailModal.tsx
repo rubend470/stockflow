@@ -145,6 +145,7 @@ export function SaleDetailModal({
                     <th>Monto</th>
                     <th>En COP</th>
                     <th>Referencia</th>
+                    <th>Registró</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -166,6 +167,7 @@ export function SaleDetailModal({
                         <MoneyText amount={payment.amountInBase} />
                       </td>
                       <td>{payment.reference || '—'}</td>
+                      <td>{payment.createdByName || sale.cashierName || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

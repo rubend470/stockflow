@@ -10,13 +10,24 @@ import {
 } from '../../types/purchaseInvoice'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../../constants/currency'
 import { formatMoney, parseMoneyInput } from '../../utils/formatMoney'
+import {
+  categorySelectionPatch,
+  getPurchaseLinePreview,
+  productSelectionPatch,
+  validatePurchaseInvoiceLines,
+} from '../../utils/purchaseInvoiceLine'
+import { todayInputValue } from '../../utils/invoiceDate'
 import { MoneyInput } from '../ui/MoneyInput'
 import { ModalFrame } from '../ui/ModalFrame'
+import { SupplierNameField } from '../suppliers/SupplierNameField'
+import type { Supplier } from '../../types/supplier'
 import { ProductFormModal } from './ProductFormModal'
+import { PurchaseInvoiceLineRow } from './PurchaseInvoiceLineRow'
 
 interface PurchaseInvoiceFormModalProps {
   open: boolean
   products: Product[]
+  suppliers: Supplier[]
   currencies: Currency[]
   stockCategories: StockCategory[]
   canViewCost: boolean
@@ -30,6 +41,7 @@ interface PurchaseInvoiceFormModalProps {
 export function PurchaseInvoiceFormModal({
   open,
   products,
+  suppliers,
   currencies,
   stockCategories,
   canViewCost,
@@ -40,7 +52,9 @@ export function PurchaseInvoiceFormModal({
   onCreateProduct,
 }: PurchaseInvoiceFormModalProps) {
   const [supplierName, setSupplierName] = useState('')
+  const [supplierId, setSupplierId] = useState('')
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState('')
+  const [invoiceDate, setInvoiceDate] = useState(todayInputValue())
   const [currencyCode, setCurrencyCode] = useState(DEFAULT_BASE_CURRENCY_CODE)
   const [notes, setNotes] = useState('')
   const [amountPaid, setAmountPaid] = useState('0')
@@ -52,7 +66,9 @@ export function PurchaseInvoiceFormModal({
   useEffect(() => {
     if (open) {
       setSupplierName('')
+      setSupplierId('')
       setSupplierInvoiceNumber('')
+      setInvoiceDate(todayInputValue())
       setCurrencyCode(
         currencies.find((currency) => currency.isBase)?.code ?? DEFAULT_BASE_CURRENCY_CODE,
       )
@@ -63,12 +79,44 @@ export function PurchaseInvoiceFormModal({
     }
   }, [open, currencies])
 
-  const totalAmount = useMemo(
-    () => lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0),
-    [lines],
-  )
+  const totalAmount = useMemo(() => {
+    return lines.reduce((sum, line) => {
+      const product =
+        line.lineType === 'product'
+          ? products.find((entry) => entry.id === line.productId)
+          : undefined
+      const category =
+        line.lineType === 'category'
+          ? stockCategories.find((entry) => entry.id === line.stockCategoryId)
+          : undefined
+      return sum + getPurchaseLinePreview(line, product, category).lineTotal
+    }, 0)
+  }, [lines, products, stockCategories])
 
   const currencyMeta = currencies.find((currency) => currency.code === currencyCode)
+  const totalUnits = useMemo(() => {
+    return lines.reduce((sum, line) => {
+      const product =
+        line.lineType === 'product'
+          ? products.find((entry) => entry.id === line.productId)
+          : undefined
+      const category =
+        line.lineType === 'category'
+          ? stockCategories.find((entry) => entry.id === line.stockCategoryId)
+          : undefined
+      return sum + getPurchaseLinePreview(line, product, category).stockUnits
+    }, 0)
+  }, [lines, products, stockCategories])
+
+  const quickProductInitial = useMemo(() => {
+    const line = lines[productModalLineIndex]
+    return {
+      ...emptyProductForm(),
+      stock: 0,
+      costPrice: line?.unitCost ?? 0,
+      name: line?.description?.trim() ?? '',
+    }
+  }, [lines, productModalLineIndex])
 
   if (!open) return null
 
@@ -81,9 +129,13 @@ export function PurchaseInvoiceFormModal({
         if (patch.productId) {
           const product = products.find((entry) => entry.id === patch.productId)
           if (product) {
-            next.description = product.name
-            next.unitLabel = product.unitLabel
-            next.unitCost = product.costPrice
+            Object.assign(next, productSelectionPatch(product))
+          }
+        }
+        if (patch.stockCategoryId) {
+          const category = stockCategories.find((entry) => entry.id === patch.stockCategoryId)
+          if (category) {
+            Object.assign(next, categorySelectionPatch(category))
           }
         }
         return next
@@ -92,6 +144,7 @@ export function PurchaseInvoiceFormModal({
   }
 
   function openProductModalForLine(index: number) {
+    setFormError('')
     setProductModalLineIndex(index)
     setProductModalOpen(true)
   }
@@ -99,7 +152,13 @@ export function PurchaseInvoiceFormModal({
   async function handleCreateProduct(values: ReturnType<typeof emptyProductForm>) {
     const productId = await onCreateProduct(values)
     if (productId) {
-      updateLine(productModalLineIndex, { productId })
+      const created = products.find((entry) => entry.id === productId)
+      updateLine(productModalLineIndex, {
+        productId,
+        isNewProduct: false,
+        description: values.name.trim(),
+        ...(created ? productSelectionPatch(created) : {}),
+      })
       setProductModalOpen(false)
     }
   }
@@ -113,14 +172,17 @@ export function PurchaseInvoiceFormModal({
       return
     }
 
-    if (lines.some((line) => !line.productId)) {
-      setFormError('Cada línea debe tener un producto. Crea uno nuevo si no existe en el catálogo.')
+    const lineError = validatePurchaseInvoiceLines(lines, products, stockCategories)
+    if (lineError) {
+      setFormError(lineError)
       return
     }
 
     onSubmit({
+      supplierId: supplierId || undefined,
       supplierName,
       supplierInvoiceNumber: supplierInvoiceNumber.trim() || undefined,
+      invoiceDate,
       currencyCode,
       notes,
       amountPaid: parseMoneyInput(amountPaid) ?? 0,
@@ -128,198 +190,172 @@ export function PurchaseInvoiceFormModal({
     })
   }
 
-  const quickProductInitial = {
-    ...emptyProductForm(),
-    stock: 0,
-    costPrice: lines[productModalLineIndex]?.unitCost ?? 0,
-    name: lines[productModalLineIndex]?.description ?? '',
-  }
-
   return (
     <>
-      <ModalFrame wide onClose={onClose} closeDisabled={submitting}>
-        <div className="finance-modal-header">
-          <h2>Registrar entrada de mercancía</h2>
-          <p>
-            Indica lo que llegó del proveedor. Al guardar, el inventario se actualiza de inmediato.
-          </p>
+      <ModalFrame
+        wide
+        className="purchase-invoice-modal"
+        onClose={onClose}
+        closeDisabled={submitting}
+      >
+        <div className="finance-modal-header purchase-invoice-header">
+          <div>
+            <h2>Registrar entrada de mercancía</h2>
+            <p>Lo que guardes aquí actualiza el inventario al instante.</p>
+          </div>
         </div>
 
-        <form className="inventory-form" onSubmit={handleSubmit}>
+        <form className="purchase-invoice-form" onSubmit={handleSubmit}>
           {formError && <div className="alert alert-error">{formError}</div>}
 
-          <div className="inventory-form-grid">
-            <label className="inventory-field">
-              <span>Proveedor</span>
-              <input
-                type="text"
+          <section className="purchase-invoice-section">
+            <h3>Datos del proveedor</h3>
+            <div className="purchase-invoice-grid">
+              <label className="purchase-field">
+                <span>Fecha</span>
+                <input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(event) => setInvoiceDate(event.target.value)}
+                  required
+                />
+              </label>
+
+              <SupplierNameField
                 value={supplierName}
-                onChange={(event) => setSupplierName(event.target.value)}
-                placeholder="Ej. Distribuidora ABC"
-                required
+                suppliers={suppliers}
+                onChange={(name, id) => {
+                  setSupplierName(name)
+                  setSupplierId(id ?? '')
+                }}
               />
-            </label>
 
-            <label className="inventory-field">
-              <span>Nº factura proveedor</span>
-              <input
-                type="text"
-                value={supplierInvoiceNumber}
-                onChange={(event) => setSupplierInvoiceNumber(event.target.value)}
-                placeholder="Opcional"
-              />
-            </label>
+              <label className="purchase-field">
+                <span>Nº factura proveedor</span>
+                <input
+                  type="text"
+                  value={supplierInvoiceNumber}
+                  onChange={(event) => setSupplierInvoiceNumber(event.target.value)}
+                  placeholder="Opcional"
+                />
+              </label>
 
-            <label className="inventory-field">
-              <span>Moneda de la factura</span>
-              <select
-                className="finance-select"
-                value={currencyCode}
-                onChange={(event) => setCurrencyCode(event.target.value)}
-                required
-              >
-                {currencies.map((currency) => (
-                  <option key={currency.id} value={currency.code}>
-                    {currency.code} · {currency.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="purchase-field">
+                <span>Moneda</span>
+                <select
+                  className="finance-select"
+                  value={currencyCode}
+                  onChange={(event) => setCurrencyCode(event.target.value)}
+                  required
+                >
+                  {currencies.map((currency) => (
+                    <option key={currency.id} value={currency.code}>
+                      {currency.code} · {currency.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="inventory-field inventory-field-full">
-              <span>Notas</span>
-              <input
-                type="text"
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                placeholder="Referencia, guía, observaciones..."
-              />
-            </label>
-          </div>
+              <label className="purchase-field purchase-field-full">
+                <span>Notas</span>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="Guía, referencia u observación"
+                />
+              </label>
+            </div>
+          </section>
 
-          <div className="inventory-form-section">
-            <div className="purchase-invoice-lines-header">
-              <h3>Productos recibidos</h3>
+          <section className="purchase-invoice-section">
+            <div className="purchase-invoice-section-head">
+              <div>
+                <h3>Productos y categorías</h3>
+                <p className="purchase-section-hint">
+                  Registra productos del catálogo o categorías globales (ej. pollo). Los derivados
+                  de una categoría descuentan de su stock al vender.
+                </p>
+              </div>
               <button
                 type="button"
-                className="inventory-btn inventory-btn-secondary"
+                className="finance-btn finance-btn-secondary"
                 onClick={() => setLines((current) => [...current, emptyPurchaseInvoiceLine()])}
               >
-                Agregar línea
+                + Agregar línea
               </button>
             </div>
 
-            {lines.map((line, index) => (
-              <div key={index} className="purchase-invoice-line">
-                <label className="inventory-field">
-                  <span>Producto</span>
-                  <select
-                    className="finance-select"
-                    value={line.productId}
-                    onChange={(event) => updateLine(index, { productId: event.target.value })}
-                    required
-                  >
-                    <option value="">Selecciona producto</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <button
-                  type="button"
-                  className="inventory-link-btn purchase-invoice-new-product"
-                  onClick={() => openProductModalForLine(index)}
-                >
-                  + Nuevo producto
-                </button>
-
-                <label className="inventory-field">
-                  <span>Descripción</span>
-                  <input
-                    type="text"
-                    value={line.description}
-                    onChange={(event) => updateLine(index, { description: event.target.value })}
-                    required
-                  />
-                </label>
-
-                <label className="inventory-field">
-                  <span>Cantidad</span>
-                  <input
-                    type="number"
-                    min="0.001"
-                    step="0.001"
-                    value={line.quantity}
-                    onChange={(event) => updateLine(index, { quantity: Number(event.target.value) })}
-                    required
-                  />
-                </label>
-
-                <label className="inventory-field">
-                  <span>Costo unit. ({currencyCode})</span>
-                  <MoneyInput
-                    showCurrencyPrefix={false}
-                    min="0"
-                    value={line.unitCost}
-                    onChange={(next) => {
-                      const parsed = parseMoneyInput(next)
-                      updateLine(index, {
-                        unitCost: parsed ?? 0,
-                      })
-                    }}
-                    required
-                  />
-                </label>
-
-                {lines.length > 1 && (
-                  <button
-                    type="button"
-                    className="inventory-link-btn"
-                    onClick={() => setLines((current) => current.filter((_, i) => i !== index))}
-                  >
-                    Quitar
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="inventory-form-grid">
-            <label className="inventory-field">
-              <span>Anticipo pagado ({currencyCode})</span>
-              <MoneyInput
-                showCurrencyPrefix={false}
-                min="0"
-                value={amountPaid}
-                onChange={setAmountPaid}
-              />
-            </label>
-
-            <div className="inventory-field">
-              <span>Total factura</span>
-              <strong className="purchase-invoice-total">
-                {formatMoney(totalAmount, currencyCode, currencyMeta?.symbol)}
-              </strong>
+            <div className="purchase-lines-stack">
+              {lines.map((line, index) => (
+                <PurchaseInvoiceLineRow
+                  key={index}
+                  index={index}
+                  line={line}
+                  products={products}
+                  stockCategories={stockCategories}
+                  currencyCode={currencyCode}
+                  canRemove={lines.length > 1}
+                  onChange={(patch) => updateLine(index, patch)}
+                  onRemove={() => setLines((current) => current.filter((_, i) => i !== index))}
+                  onCreateProduct={() => openProductModalForLine(index)}
+                />
+              ))}
             </div>
-          </div>
+          </section>
 
-          <div className="finance-form-actions">
-            <button type="button" className="finance-btn finance-btn-secondary" onClick={onClose}>
-              Cancelar
-            </button>
-            <button type="submit" className="finance-btn finance-btn-primary" disabled={submitting}>
-              {submitting ? 'Registrando...' : 'Guardar y actualizar inventario'}
-            </button>
-          </div>
+          <footer className="purchase-invoice-footer">
+            <div className="purchase-invoice-summary">
+              <label className="purchase-field">
+                <span>Anticipo pagado ({currencyCode})</span>
+                <MoneyInput
+                  showCurrencyPrefix={false}
+                  min="0"
+                  value={amountPaid}
+                  onChange={setAmountPaid}
+                />
+              </label>
+
+              <div className="purchase-invoice-totals">
+                <article>
+                  <span>Unidades en inventario</span>
+                  <strong>{totalUnits.toLocaleString('es')}</strong>
+                </article>
+                <article className="purchase-invoice-total-main">
+                  <span>Total factura</span>
+                  <strong>
+                    {formatMoney(totalAmount, currencyCode, currencyMeta?.symbol)}
+                  </strong>
+                </article>
+              </div>
+            </div>
+
+            <div className="finance-form-actions purchase-invoice-actions">
+              <button
+                type="button"
+                className="finance-btn finance-btn-secondary"
+                onClick={onClose}
+                disabled={submitting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="finance-btn finance-btn-primary"
+                disabled={submitting}
+              >
+                {submitting ? 'Registrando...' : 'Guardar y actualizar inventario'}
+              </button>
+            </div>
+          </footer>
         </form>
       </ModalFrame>
 
       <ProductFormModal
         open={productModalOpen}
         mode="create"
+        nested
+        fromPurchaseEntry
         initialValues={quickProductInitial}
         stockCategories={stockCategories}
         canViewCost={canViewCost}

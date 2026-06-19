@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppLayout } from '../../../components/layout/AppLayout'
 import { CartPanel } from '../../../components/pos/CartPanel'
+import {
+  PostSaleHardwareDialog,
+  type PostSaleHardwareAction,
+} from '../../../components/pos/PostSaleHardwareDialog'
 import { PosSection } from '../../../components/pos/PosSection'
 import { PaymentSection } from '../../../components/pos/PaymentSection'
 import { ProductSearchField } from '../../../components/pos/ProductSearchField'
@@ -24,14 +28,17 @@ import {
 } from '../../../services/financeService'
 import { findOrCreateClientForCredit, getFrequentCreditClients, listClients } from '../../../services/clientService'
 import { findProductByBarcode, listProducts, seedSampleProducts } from '../../../services/productService'
+import { getQzFriendlyError, openCashDrawer, printSaleTicket } from '../../../services/qzService'
 import { listStockCategories } from '../../../services/stockCategoryService'
+import { getAppSettings } from '../../../services/settingsService'
 import type { StockCategory } from '../../../types/stockCategory'
 import { enrichProductWithCategoryStock, enrichProductsWithCategoryStock, getCategoryMap } from '../../../utils/stockCategory'
 import { createSale } from '../../../services/saleService'
 import type { Client } from '../../../types/client'
 import { pickDefaultPaymentMethod, type Currency, type ExchangeRate, type PaymentMethod } from '../../../types/finance'
 import type { Product, SaleMode } from '../../../types/product'
-import type { CartItem, SalePaymentInput } from '../../../types/sale'
+import type { CartItem, SalePaymentInput, SaleResult } from '../../../types/sale'
+import type { AppSettings } from '../../../types/settings'
 import {
   buildCartItem,
   canAddProduct,
@@ -53,10 +60,101 @@ import {
   getQuantityStep,
   needsSaleQuantityModal,
 } from '../../../utils/productUnits'
+import { barcodeMatches, normalizeBarcode } from '../../../utils/barcode'
+import { userCanViewProfit, userHasAnyMenuPermission } from '../../../utils/menuPermissions'
+
+interface PostSaleRequest {
+  sale: SaleResult
+  items: CartItem[]
+  payments: SalePaymentInput[]
+  settings: AppSettings
+  cashierName: string
+  baseCurrencyCode: string
+}
+
+interface OpenSaleDraft {
+  id: string
+  label: string
+  createdAt: string
+  updatedAt: string
+  cart: CartItem[]
+  payments: SalePaymentInput[]
+  selectedCurrencyCode: string
+  selectedMethodId: string
+  paymentAmount: string
+  paymentReference: string
+  creditEnabled: boolean
+  creditAmount: string
+  creditName: string
+  creditPhone: string
+  mixedPayment: boolean
+}
+
+interface StoredOpenSaleDrafts {
+  version: 1
+  activeDraftId: string
+  drafts: OpenSaleDraft[]
+}
+
+const OPEN_SALE_DRAFTS_VERSION = 1
+
+function openSaleDraftsStorageKey(userId: string) {
+  return `stockflow:open-sales:v${OPEN_SALE_DRAFTS_VERSION}:${userId}`
+}
+
+function normalizeStoredDrafts(value: unknown): StoredOpenSaleDrafts | null {
+  if (!value || typeof value !== 'object') return null
+
+  const parsed = value as Partial<StoredOpenSaleDrafts>
+  if (!Array.isArray(parsed.drafts) || parsed.drafts.length === 0) return null
+
+  const drafts = parsed.drafts.filter((draft): draft is OpenSaleDraft => {
+    return Boolean(
+      draft &&
+        typeof draft.id === 'string' &&
+        typeof draft.label === 'string' &&
+        Array.isArray(draft.cart) &&
+        Array.isArray(draft.payments),
+    )
+  })
+
+  if (drafts.length === 0) return null
+
+  const activeDraftId =
+    typeof parsed.activeDraftId === 'string' &&
+    drafts.some((draft) => draft.id === parsed.activeDraftId)
+      ? parsed.activeDraftId
+      : drafts[0].id
+
+  return {
+    version: OPEN_SALE_DRAFTS_VERSION,
+    activeDraftId,
+    drafts,
+  }
+}
+
+function loadStoredOpenSaleDrafts(userId: string) {
+  try {
+    const raw = window.localStorage.getItem(openSaleDraftsStorageKey(userId))
+    if (!raw) return null
+    return normalizeStoredDrafts(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function saveStoredOpenSaleDrafts(userId: string, payload: StoredOpenSaleDrafts) {
+  try {
+    window.localStorage.setItem(openSaleDraftsStorageKey(userId), JSON.stringify(payload))
+  } catch {
+    // El POS sigue funcionando aunque el navegador no permita persistencia local.
+  }
+}
 
 export function PosPage() {
   const { user } = useAuth()
   const confirm = useConfirm()
+  const postSaleResolveRef = useRef<((action: PostSaleHardwareAction) => void) | null>(null)
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<StockCategory[]>([])
   const categoryMap = useMemo(() => getCategoryMap(categories), [categories])
@@ -85,8 +183,15 @@ export function PosPage() {
   const [creditPhone, setCreditPhone] = useState('')
   const [creditSubmitting, setCreditSubmitting] = useState(false)
   const [mixedPayment, setMixedPayment] = useState(false)
+  const [postSaleRequest, setPostSaleRequest] = useState<PostSaleRequest | null>(null)
+  const [postSaleBusy, setPostSaleBusy] = useState(false)
+  const [postSaleError, setPostSaleError] = useState('')
+  const [openSaleDrafts, setOpenSaleDrafts] = useState<OpenSaleDraft[]>([])
+  const [activeDraftId, setActiveDraftId] = useState('')
+  const loadedDraftsUserRef = useRef('')
+  const draftsReadyRef = useRef(false)
 
-  const canViewProfit = user?.role !== 'cashier'
+  const canViewProfit = userCanViewProfit(user)
   const baseCurrency = useMemo(() => getBaseCurrency(currencies), [currencies])
   const baseCurrencyCode = baseCurrency?.code ?? DEFAULT_BASE_CURRENCY_CODE
   const { subtotal } = useMemo(() => getCartTotals(cart), [cart])
@@ -98,6 +203,100 @@ export function PosPage() {
   const canConfirm = cart.length > 0 && (mixedPayment ? remaining <= 0.01 : true)
   const canCredit = cart.length > 0
   const frequentCreditClients = useMemo(() => getFrequentCreditClients(clients), [clients])
+  const activeDraft = useMemo(
+    () => openSaleDrafts.find((draft) => draft.id === activeDraftId) ?? openSaleDrafts[0],
+    [openSaleDrafts, activeDraftId],
+  )
+
+  function getDefaultDraftCurrency() {
+    return baseCurrency?.code ?? DEFAULT_BASE_CURRENCY_CODE
+  }
+
+  function getDefaultDraftMethod() {
+    return pickDefaultPaymentMethod(paymentMethods)?.id ?? ''
+  }
+
+  function getNextDraftLabel(drafts = openSaleDrafts) {
+    return `Venta ${drafts.length + 1}`
+  }
+
+  function createOpenSaleDraft(label?: string): OpenSaleDraft {
+    const now = new Date().toISOString()
+
+    return {
+      id: `sale-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      label: label ?? getNextDraftLabel(),
+      createdAt: now,
+      updatedAt: now,
+      cart: [],
+      payments: [],
+      selectedCurrencyCode: getDefaultDraftCurrency(),
+      selectedMethodId: getDefaultDraftMethod(),
+      paymentAmount: '',
+      paymentReference: '',
+      creditEnabled: false,
+      creditAmount: '',
+      creditName: '',
+      creditPhone: '',
+      mixedPayment: false,
+    }
+  }
+
+  function applyOpenSaleDraft(draft: OpenSaleDraft) {
+    setCart(draft.cart)
+    setPayments(draft.payments)
+    setSelectedCurrencyCode(draft.selectedCurrencyCode || getDefaultDraftCurrency())
+    setSelectedMethodId(draft.selectedMethodId || getDefaultDraftMethod())
+    setPaymentAmount(draft.paymentAmount)
+    setPaymentReference(draft.paymentReference)
+    setCreditEnabled(draft.creditEnabled)
+    setCreditAmount(draft.creditAmount)
+    setCreditName(draft.creditName)
+    setCreditPhone(draft.creditPhone)
+    setMixedPayment(draft.mixedPayment)
+  }
+
+  function snapshotOpenSaleDraft(draft: OpenSaleDraft): OpenSaleDraft {
+    return {
+      ...draft,
+      updatedAt: new Date().toISOString(),
+      cart,
+      payments,
+      selectedCurrencyCode,
+      selectedMethodId,
+      paymentAmount,
+      paymentReference,
+      creditEnabled,
+      creditAmount,
+      creditName,
+      creditPhone,
+      mixedPayment,
+    }
+  }
+
+  function hydrateOpenSaleDrafts(currencyList: Currency[], methodList: PaymentMethod[]) {
+    if (!user || loadedDraftsUserRef.current === user.uid) return
+
+    const base = getBaseCurrency(currencyList)?.code ?? DEFAULT_BASE_CURRENCY_CODE
+    const methodId = pickDefaultPaymentMethod(methodList)?.id ?? ''
+    const stored = loadStoredOpenSaleDrafts(user.uid)
+    const fallbackDraft: OpenSaleDraft = {
+      ...createOpenSaleDraft('Venta 1'),
+      selectedCurrencyCode: base,
+      selectedMethodId: methodId,
+    }
+    const drafts = stored?.drafts.length ? stored.drafts : [fallbackDraft]
+    const activeId = stored?.activeDraftId && drafts.some((draft) => draft.id === stored.activeDraftId)
+      ? stored.activeDraftId
+      : drafts[0].id
+    const draft = drafts.find((item) => item.id === activeId) ?? drafts[0]
+
+    loadedDraftsUserRef.current = user.uid
+    draftsReadyRef.current = true
+    setOpenSaleDrafts(drafts)
+    setActiveDraftId(activeId)
+    applyOpenSaleDraft(draft)
+  }
 
   const conversionRateLabel = useMemo(() => {
     if (selectedCurrencyCode === baseCurrencyCode) return null
@@ -137,7 +336,7 @@ export function PosPage() {
     setError('')
 
     try {
-      if (user.role === 'super_admin' || user.role === 'admin') {
+      if (userHasAnyMenuPermission(user, ['settings', 'add-product'])) {
         await ensureFinanceDefaults(user.uid)
         await seedSampleProducts(user.uid)
       }
@@ -158,9 +357,9 @@ export function PosPage() {
       setPaymentMethods(methodList)
       setExchangeRates(rates)
 
-      const base = getBaseCurrency(currencyList)
-      setSelectedCurrencyCode(base?.code ?? DEFAULT_BASE_CURRENCY_CODE)
-      setSelectedMethodId(pickDefaultPaymentMethod(methodList)?.id ?? '')
+      if (loadedDraftsUserRef.current !== user.uid) {
+        hydrateOpenSaleDrafts(currencyList, methodList)
+      }
     } catch {
       setError('No se pudo cargar la venta. Revisa Firestore y las reglas de seguridad.')
     } finally {
@@ -171,6 +370,46 @@ export function PosPage() {
   useEffect(() => {
     loadPosData()
   }, [loadPosData])
+
+  useEffect(() => {
+    loadedDraftsUserRef.current = ''
+    draftsReadyRef.current = false
+    setOpenSaleDrafts([])
+    setActiveDraftId('')
+  }, [user?.uid])
+
+  useEffect(() => {
+    if (!draftsReadyRef.current || !activeDraftId) return
+
+    setOpenSaleDrafts((current) =>
+      current.map((draft) =>
+        draft.id === activeDraftId ? snapshotOpenSaleDraft(draft) : draft,
+      ),
+    )
+  }, [
+    activeDraftId,
+    cart,
+    payments,
+    selectedCurrencyCode,
+    selectedMethodId,
+    paymentAmount,
+    paymentReference,
+    creditEnabled,
+    creditAmount,
+    creditName,
+    creditPhone,
+    mixedPayment,
+  ])
+
+  useEffect(() => {
+    if (!user || !draftsReadyRef.current || openSaleDrafts.length === 0) return
+
+    saveStoredOpenSaleDrafts(user.uid, {
+      version: OPEN_SALE_DRAFTS_VERSION,
+      activeDraftId,
+      drafts: openSaleDrafts,
+    })
+  }, [user, activeDraftId, openSaleDrafts])
 
   useEffect(() => {
     if (mixedPayment || subtotal <= 0) return
@@ -204,6 +443,72 @@ export function PosPage() {
     baseCurrencyCode,
     exchangeRates,
   ])
+
+  function getDraftSubtotal(draft: OpenSaleDraft) {
+    return getCartTotals(draft.id === activeDraftId ? cart : draft.cart).subtotal
+  }
+
+  function getDraftLineCount(draft: OpenSaleDraft) {
+    return draft.id === activeDraftId ? cart.length : draft.cart.length
+  }
+
+  function handleCreateOpenSaleDraft() {
+    const draft = createOpenSaleDraft()
+    setOpenSaleDrafts((current) => [...current, draft])
+    setActiveDraftId(draft.id)
+    applyOpenSaleDraft(draft)
+    setError('')
+    setSuccess('')
+  }
+
+  function handleSwitchOpenSaleDraft(id: string) {
+    if (id === activeDraftId) return
+
+    const target = openSaleDrafts.find((draft) => draft.id === id)
+    if (!target) return
+
+    setOpenSaleDrafts((current) =>
+      current.map((draft) =>
+        draft.id === activeDraftId ? snapshotOpenSaleDraft(draft) : draft,
+      ),
+    )
+    setActiveDraftId(target.id)
+    applyOpenSaleDraft(target)
+    setError('')
+    setSuccess('')
+  }
+
+  async function handleCloseOpenSaleDraft(draft: OpenSaleDraft) {
+    const hasContent = getDraftLineCount(draft) > 0 || draft.payments.length > 0
+    const confirmed = hasContent
+      ? await confirm({
+          title: 'Cerrar venta abierta',
+          message: `¿Cerrar ${draft.label}? Se perderá su carrito pendiente en este dispositivo.`,
+          confirmLabel: 'Sí, cerrar',
+          tone: 'danger',
+        })
+      : true
+    if (!confirmed) return
+
+    const remainingDrafts = openSaleDrafts.filter((item) => item.id !== draft.id)
+    const nextDraft = remainingDrafts[0] ?? createOpenSaleDraft('Venta 1')
+
+    setOpenSaleDrafts(remainingDrafts.length > 0 ? remainingDrafts : [nextDraft])
+    setActiveDraftId(nextDraft.id)
+
+    if (draft.id === activeDraftId || remainingDrafts.length === 0) {
+      applyOpenSaleDraft(nextDraft)
+    }
+  }
+
+  function completeActiveOpenSaleDraft() {
+    const remainingDrafts = openSaleDrafts.filter((draft) => draft.id !== activeDraftId)
+    const nextDraft = remainingDrafts[0] ?? createOpenSaleDraft('Venta 1')
+
+    setOpenSaleDrafts(remainingDrafts.length > 0 ? remainingDrafts : [nextDraft])
+    setActiveDraftId(nextDraft.id)
+    applyOpenSaleDraft(nextDraft)
+  }
 
   function resetCreditFields() {
     setCreditEnabled(false)
@@ -282,10 +587,11 @@ export function PosPage() {
 
   async function handleSearchSubmit() {
     const trimmed = searchQuery.trim()
+    const barcodeQuery = normalizeBarcode(searchQuery)
     if (!trimmed) return
 
     try {
-      const byBarcode = await findProductByBarcode(trimmed)
+      const byBarcode = await findProductByBarcode(barcodeQuery || trimmed)
       if (byBarcode) {
         const enriched =
           products.find((product) => product.id === byBarcode.id) ??
@@ -297,7 +603,7 @@ export function PosPage() {
       const matches = products.filter(
         (product) =>
           product.name.toLowerCase().includes(trimmed.toLowerCase()) ||
-          product.barcode === trimmed,
+          barcodeMatches(product.barcode, barcodeQuery),
       )
 
       if (matches.length === 1) {
@@ -638,6 +944,7 @@ export function PosPage() {
     if (!user) return
 
     const creditClient = salePayments.find((payment) => payment.isCredit && payment.clientId)
+    const soldItems = [...cart]
 
     const result = await createSale({
       cashierId: user.uid,
@@ -658,13 +965,72 @@ export function PosPage() {
         ? `Venta ${result.saleNumber}${clientLabel ? ` · ${clientLabel}` : ''} por ${formatBaseMoney(result.total)}.`
         : `Venta ${result.saleNumber} registrada por ${formatBaseMoney(result.total)}.`,
     )
-    setCart([])
-    setPayments([])
-    setPaymentAmount('')
-    setPaymentReference('')
-    setMixedPayment(false)
-    resetCreditFields()
+
+    const settings = await getAppSettings().catch<AppSettings>(() => ({
+      businessName: 'StockFlow',
+      address: '',
+      phone: '',
+      baseCurrency: baseCurrencyCode,
+      taxEnabled: false,
+      taxRate: 0,
+      lowStockAlertEnabled: true,
+    }))
+
+    await requestPostSaleHardwareAction({
+      sale: result,
+      items: soldItems,
+      payments: salePayments,
+      settings,
+      cashierName: user.name,
+      baseCurrencyCode,
+    })
+
+    completeActiveOpenSaleDraft()
     await loadPosData()
+  }
+
+  function requestPostSaleHardwareAction(request: PostSaleRequest) {
+    setPostSaleRequest(request)
+    setPostSaleBusy(false)
+    setPostSaleError('')
+
+    return new Promise<PostSaleHardwareAction>((resolve) => {
+      postSaleResolveRef.current = resolve
+    })
+  }
+
+  function closePostSaleDialog(action: PostSaleHardwareAction) {
+    postSaleResolveRef.current?.(action)
+    postSaleResolveRef.current = null
+    setPostSaleRequest(null)
+    setPostSaleBusy(false)
+    setPostSaleError('')
+  }
+
+  async function handlePostSaleAction(action: PostSaleHardwareAction) {
+    if (action === 'skip') {
+      closePostSaleDialog(action)
+      return
+    }
+
+    if (!postSaleRequest) return
+
+    setPostSaleBusy(true)
+    setPostSaleError('')
+
+    try {
+      if (action === 'print-ticket') {
+        await printSaleTicket(postSaleRequest)
+        setSuccess(`Ticket de venta ${postSaleRequest.sale.saleNumber} enviado a impresión.`)
+      } else {
+        await openCashDrawer()
+        setSuccess(`Gaveta abierta para la venta ${postSaleRequest.sale.saleNumber}.`)
+      }
+      closePostSaleDialog(action)
+    } catch (err) {
+      setPostSaleError(getQzFriendlyError(err))
+      setPostSaleBusy(false)
+    }
   }
 
   async function handleConfirmSale() {
@@ -735,87 +1101,145 @@ export function PosPage() {
 
   return (
     <AppLayout title="Venta" subtitle="Registra ventas en mostrador" contentClassName="app-content-pos">
-      <div className="pos-page pos-page-stack">
+      <div className="pos-page pos-page-register">
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
 
-        <PosSection
-          step={1}
-          title="Buscar producto"
-          hint="Escanea el código o escribe el nombre"
-          tone="green"
-        >
-          <ProductSearchField
-            value={searchQuery}
-            products={products}
-            onChange={setSearchQuery}
-            onSubmit={handleSearchSubmit}
-            onSelectProduct={handleProductSelect}
-          />
-        </PosSection>
+        <section className="pos-open-sales" aria-label="Ventas abiertas">
+          <div className="pos-open-sales-header">
+            <div>
+              <strong>Ventas abiertas</strong>
+              <p>
+                Puedes dejar varias ventas pendientes y volver a ellas antes de confirmar.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="pos-btn pos-btn-primary"
+              onClick={handleCreateOpenSaleDraft}
+            >
+              + Nueva venta
+            </button>
+          </div>
 
-        <PosSection
-          step={2}
-          title="Productos agregados"
-          hint={`${cart.length} línea(s) en el carrito`}
-          tone="blue"
-        >
-          <CartPanel
-            items={cart}
-            onIncrease={handleIncrease}
-            onDecrease={handleDecrease}
-            onRemove={handleRemove}
-            subtotal={subtotal}
-          />
-        </PosSection>
+          <div className="pos-open-sales-list">
+            {openSaleDrafts.map((draft) => {
+              const isActive = draft.id === activeDraft?.id
+              const lineCount = getDraftLineCount(draft)
+              const draftSubtotal = getDraftSubtotal(draft)
 
-        <PosSection
-          step={3}
-          title="Cobro"
-          hint="Efectivo, transferencia o crédito"
-          tone="amber"
-        >
-          <PaymentSection
-          currencies={currencies}
-          paymentMethods={paymentMethods}
-          baseCurrencyCode={baseCurrencyCode}
-          selectedCurrencyCode={selectedCurrencyCode}
-          conversionRateLabel={conversionRateLabel}
-          paymentEquivalentBase={paymentEquivalentBase}
-          selectedMethodId={selectedMethodId}
-          paymentAmount={paymentAmount}
-          paymentReference={paymentReference}
-          payments={payments}
-          totalDue={subtotal}
-          remaining={remaining}
-          mixedPayment={mixedPayment}
-          canCredit={canCredit}
-          creditEnabled={creditEnabled}
-          creditAmount={creditAmount}
-          creditName={creditName}
-          creditPhone={creditPhone}
-          frequentCreditClients={frequentCreditClients}
-          onCreditEnabledChange={handleCreditEnabledChange}
-          onCreditAmountChange={setCreditAmount}
-          onCreditNameChange={setCreditName}
-          onCreditPhoneChange={setCreditPhone}
-          onUseFullCredit={handleUseFullCredit}
-          onAddCreditPayment={mixedPayment ? handleAddInlineCredit : undefined}
-          creditSubmitting={creditSubmitting}
-          onMixedPaymentChange={handleMixedPaymentChange}
-          onCurrencyChange={setSelectedCurrencyCode}
-          onMethodChange={setSelectedMethodId}
-          onAmountChange={setPaymentAmount}
-          onReferenceChange={setPaymentReference}
-          onUseTotalAmount={handlePayExactRemaining}
-          onAddPayment={handleAddPayment}
-          onRemovePayment={handleRemovePayment}
-          onConfirmSale={handleConfirmSale}
-          submitting={submitting}
-          canConfirm={canConfirm}
-          error={error}
-          />
-        </PosSection>
+              return (
+                <article
+                  key={draft.id}
+                  className={`pos-open-sale-tab ${isActive ? 'active' : ''}`}
+                >
+                  <button
+                    type="button"
+                    className="pos-open-sale-select"
+                    onClick={() => handleSwitchOpenSaleDraft(draft.id)}
+                    aria-current={isActive ? 'true' : undefined}
+                  >
+                    <strong>{draft.label}</strong>
+                    <span>
+                      {lineCount} línea(s) · {formatBaseMoney(draftSubtotal)}
+                    </span>
+                  </button>
+                  <div className="pos-open-sale-actions">
+                    <button
+                      type="button"
+                      className="pos-link-btn danger"
+                      onClick={() => handleCloseOpenSaleDraft(draft)}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
+
+        <div className="pos-register-main">
+          <PosSection
+            step={1}
+            title="Buscar producto"
+            hint="Escanea el código o escribe el nombre"
+            tone="green"
+          >
+            <ProductSearchField
+              value={searchQuery}
+              products={products}
+              onChange={setSearchQuery}
+              onSubmit={handleSearchSubmit}
+              onSelectProduct={handleProductSelect}
+            />
+          </PosSection>
+
+          <PosSection
+            step={2}
+            title="Productos agregados"
+            hint={`${cart.length} línea(s) en el carrito`}
+            tone="blue"
+          >
+            <CartPanel
+              items={cart}
+              onIncrease={handleIncrease}
+              onDecrease={handleDecrease}
+              onRemove={handleRemove}
+              subtotal={subtotal}
+            />
+          </PosSection>
+        </div>
+
+        <div className="pos-register-side">
+          <PosSection
+            step={3}
+            title="Cobro"
+            hint="Efectivo, transferencia o crédito"
+            tone="amber"
+          >
+            <PaymentSection
+              currencies={currencies}
+              paymentMethods={paymentMethods}
+              baseCurrencyCode={baseCurrencyCode}
+              selectedCurrencyCode={selectedCurrencyCode}
+              conversionRateLabel={conversionRateLabel}
+              paymentEquivalentBase={paymentEquivalentBase}
+              selectedMethodId={selectedMethodId}
+              paymentAmount={paymentAmount}
+              paymentReference={paymentReference}
+              payments={payments}
+              totalDue={subtotal}
+              remaining={remaining}
+              mixedPayment={mixedPayment}
+              canCredit={canCredit}
+              creditEnabled={creditEnabled}
+              creditAmount={creditAmount}
+              creditName={creditName}
+              creditPhone={creditPhone}
+              frequentCreditClients={frequentCreditClients}
+              onCreditEnabledChange={handleCreditEnabledChange}
+              onCreditAmountChange={setCreditAmount}
+              onCreditNameChange={setCreditName}
+              onCreditPhoneChange={setCreditPhone}
+              onUseFullCredit={handleUseFullCredit}
+              onAddCreditPayment={mixedPayment ? handleAddInlineCredit : undefined}
+              creditSubmitting={creditSubmitting}
+              onMixedPaymentChange={handleMixedPaymentChange}
+              onCurrencyChange={setSelectedCurrencyCode}
+              onMethodChange={setSelectedMethodId}
+              onAmountChange={setPaymentAmount}
+              onReferenceChange={setPaymentReference}
+              onUseTotalAmount={handlePayExactRemaining}
+              onAddPayment={handleAddPayment}
+              onRemovePayment={handleRemovePayment}
+              onConfirmSale={handleConfirmSale}
+              submitting={submitting}
+              canConfirm={canConfirm}
+              error={error}
+            />
+          </PosSection>
+        </div>
       </div>
 
       <SaleProcessingOverlay open={submitting} />
@@ -833,6 +1257,15 @@ export function PosPage() {
           onClose={() => setPendingProduct(null)}
         />
       )}
+
+      <PostSaleHardwareDialog
+        open={postSaleRequest !== null}
+        saleNumber={postSaleRequest?.sale.saleNumber}
+        totalLabel={postSaleRequest ? formatBaseMoney(postSaleRequest.sale.total) : undefined}
+        busy={postSaleBusy}
+        error={postSaleError}
+        onSelect={handlePostSaleAction}
+      />
     </AppLayout>
   )
 }

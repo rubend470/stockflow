@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
 import { db } from '../lib/firebase'
+import { normalizeBarcode } from '../utils/barcode'
 import { roundMoney } from '../utils/formatMoney'
 import type { CreateProductInput, Product, UpdateProductInput } from '../types/product'
 import { normalizeLegacyProduct, normalizeProductInput } from '../utils/productUnits'
@@ -81,7 +82,7 @@ export async function getProductById(id: string): Promise<Product | null> {
 }
 
 async function isBarcodeTaken(barcode: string, excludeId?: string) {
-  const trimmed = barcode.trim()
+  const trimmed = normalizeBarcode(barcode)
   if (!trimmed) return false
 
   const snapshot = await getDocs(
@@ -210,7 +211,7 @@ export async function deleteProduct(id: string) {
 }
 
 export async function findProductByBarcode(barcode: string): Promise<Product | null> {
-  const trimmed = barcode.trim()
+  const trimmed = normalizeBarcode(barcode)
   if (!trimmed) return null
 
   const snapshot = await getDocs(

@@ -67,6 +67,8 @@ function mapExchangeRate(id: string, data: Record<string, unknown>): ExchangeRat
       toCurrency: String(data.toCurrency).toUpperCase(),
       fromAmount: Number(data.fromAmount ?? 1),
       toAmount: Number(data.toAmount ?? 1),
+      operation: data.operation === 'divide' ? 'divide' : 'multiply',
+      calculationMode: data.calculationMode === 'operation' ? 'operation' : 'ratio',
       effectiveDate: effectiveDateIso,
     }
   }
@@ -80,6 +82,8 @@ function mapExchangeRate(id: string, data: Record<string, unknown>): ExchangeRat
     toCurrency: legacyCode,
     fromAmount: 1,
     toAmount: legacyRate,
+    operation: 'multiply',
+    calculationMode: 'ratio',
     effectiveDate: effectiveDateIso,
   }
 }
@@ -377,6 +381,10 @@ function validateExchangeRateInput(input: ExchangeRateFormInput) {
     throw new Error('Los montos de la tasa deben ser mayores a cero.')
   }
 
+  if (input.operation !== 'multiply' && input.operation !== 'divide') {
+    throw new Error('Selecciona si la tasa se multiplica o se divide.')
+  }
+
   return { fromCurrency, toCurrency }
 }
 
@@ -394,6 +402,8 @@ export async function createExchangeRate(input: ExchangeRateFormInput, userId: s
     toCurrency,
     fromAmount: input.fromAmount,
     toAmount: input.toAmount,
+    operation: input.operation,
+    calculationMode: 'operation',
     effectiveDate: serverTimestamp(),
     createdAt: serverTimestamp(),
     createdBy: userId,
@@ -419,6 +429,8 @@ export async function updateExchangeRate(id: string, input: ExchangeRateFormInpu
     toCurrency,
     fromAmount: input.fromAmount,
     toAmount: input.toAmount,
+    operation: input.operation,
+    calculationMode: 'operation',
     effectiveDate: serverTimestamp(),
     updatedAt: serverTimestamp(),
   })
@@ -466,6 +478,8 @@ export async function ensureFinanceDefaults(userId: string) {
       toCurrency: DEFAULT_BASE_CURRENCY_CODE,
       fromAmount: 1,
       toAmount: 4000,
+      operation: 'multiply',
+      calculationMode: 'ratio',
       effectiveDate: serverTimestamp(),
       createdAt: serverTimestamp(),
       createdBy: userId,
@@ -477,6 +491,8 @@ export async function ensureFinanceDefaults(userId: string) {
       toCurrency: 'USD',
       fromAmount: 4000,
       toAmount: 1,
+      operation: 'multiply',
+      calculationMode: 'ratio',
       effectiveDate: serverTimestamp(),
       createdAt: serverTimestamp(),
       createdBy: userId,

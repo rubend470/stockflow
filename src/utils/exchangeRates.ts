@@ -20,7 +20,23 @@ export function indexLatestExchangeRates(rates: ExchangeRate[]) {
 }
 
 export function formatExchangeRateLabel(rate: ExchangeRate) {
-  return `${formatDecimalColombian(rate.fromAmount)} ${rate.fromCurrency} = ${formatDecimalColombian(rate.toAmount)} ${rate.toCurrency}`
+  const rateValue = getRateValue(rate)
+  const operationLabel = rate.operation === 'divide' ? 'dividir entre' : 'multiplicar por'
+
+  return `${rate.fromCurrency} → ${rate.toCurrency}: ${operationLabel} ${formatDecimalColombian(rateValue)}`
+}
+
+function getRateValue(rate: ExchangeRate) {
+  return rate.calculationMode === 'operation' ? rate.toAmount : rate.toAmount / rate.fromAmount
+}
+
+function getRateFactor(rate: ExchangeRate) {
+  const rateValue = getRateValue(rate)
+  if (rate.calculationMode === 'ratio') {
+    return rateValue
+  }
+
+  return rate.operation === 'divide' ? 1 / rateValue : rateValue
 }
 
 export function convertCurrency(
@@ -119,7 +135,7 @@ export function buildExchangeRateSnapshot(
   }
 
   indexLatestExchangeRates(rates).forEach((rate, key) => {
-    snapshot[key] = rate.toAmount / rate.fromAmount
+    snapshot[key] = getRateFactor(rate)
   })
 
   return snapshot
@@ -144,10 +160,10 @@ export function getConversionFactor(
   if (from === to) return 1
 
   const direct = findRateForConversion(from, to, rates)
-  if (direct) return direct.toAmount / direct.fromAmount
+  if (direct) return getRateFactor(direct)
 
   const inverse = findRateForConversion(to, from, rates)
-  if (inverse) return inverse.fromAmount / inverse.toAmount
+  if (inverse) return 1 / getRateFactor(inverse)
 
   return null
 }
@@ -209,7 +225,7 @@ export function describeConversion(
 
   const inverse = findRateForConversion(to, from, rates)
   if (inverse) {
-    return `${inverse.toAmount} ${inverse.toCurrency} = ${inverse.fromAmount} ${inverse.fromCurrency}`
+    return `Inversa de ${formatExchangeRateLabel(inverse)}`
   }
 
   const base = baseCurrencyCode.toUpperCase()

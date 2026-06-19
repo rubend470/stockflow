@@ -36,7 +36,7 @@ function movementLabel(entry: DebtHistoryEntry) {
 
 function statusLabel(entry: DebtHistoryEntry) {
   if (entry.kind === 'payment') {
-    return entry.createdByName ? `Por ${entry.createdByName}` : 'Abono'
+    return 'Abono'
   }
 
   if (entry.status === 'paid') return 'Pagada'
@@ -136,6 +136,7 @@ export function ClientDebtDetailModal({
                     <th>Movimiento</th>
                     <th>Monto</th>
                     <th>Estado</th>
+                    <th>Usuario</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -169,6 +170,7 @@ export function ClientDebtDetailModal({
                           {statusLabel(entry)}
                         </span>
                       </td>
+                      <td>{entry.kind === 'payment' ? entry.createdByName || '—' : '—'}</td>
                     </tr>
                   ))}
                 </tbody>

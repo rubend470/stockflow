@@ -15,6 +15,7 @@ interface AuthContextValue {
   user: AppUser | null
   loading: boolean
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -47,11 +48,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe
   }, [])
 
+  async function refreshUser() {
+    const firebaseUser = auth.currentUser
+    if (!firebaseUser) {
+      setUser(null)
+      return
+    }
+
+    const profile = await getUserProfile(firebaseUser.uid)
+    if (profile && !profile.active) {
+      await logoutUser()
+      setUser(null)
+      return
+    }
+
+    setUser(mapFirebaseUser(firebaseUser, profile))
+  }
+
   const value = useMemo(
     () => ({
       user,
       loading,
       logout: logoutUser,
+      refreshUser,
     }),
     [user, loading],
   )

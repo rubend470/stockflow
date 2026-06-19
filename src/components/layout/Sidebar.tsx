@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { filterNavigation, navigation, type NavItem } from '../../config/navigation'
 import { useAuth } from '../../context/AuthContext'
+import { userHasMenuPermission } from '../../utils/menuPermissions'
 import { roleLabels } from '../../utils/roles'
 import { ThemeToggle } from './ThemeToggle'
 import { NavIcon } from './NavIcon'
@@ -106,10 +107,8 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const { user } = useAuth()
   const location = useLocation()
 
-  const items = useMemo(
-    () => filterNavigation(navigation, user?.role ?? 'cashier'),
-    [user?.role],
-  )
+  const items = useMemo(() => filterNavigation(navigation, user), [user])
+  const canOpenPos = userHasMenuPermission(user, 'pos')
 
   const userInitial = user?.name?.charAt(0).toUpperCase() ?? 'U'
 
@@ -136,22 +135,24 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         <div className="sidebar-actions">
-          <NavLink
-            to="/ventas/pos"
-            className={({ isActive }) => `sidebar-quick-action ${isActive ? 'active' : ''}`}
-            onClick={onClose}
-          >
-            <span className="sidebar-quick-action-icon">
-              <NavIcon name="pos" />
-            </span>
-            <span className="sidebar-quick-action-text">
-              <strong>Nueva venta</strong>
-              <small>Punto de venta</small>
-            </span>
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="sidebar-quick-action-arrow">
-              <path d="M9 6l6 6-6 6" />
-            </svg>
-          </NavLink>
+          {canOpenPos && (
+            <NavLink
+              to="/ventas/pos"
+              className={({ isActive }) => `sidebar-quick-action ${isActive ? 'active' : ''}`}
+              onClick={onClose}
+            >
+              <span className="sidebar-quick-action-icon">
+                <NavIcon name="pos" />
+              </span>
+              <span className="sidebar-quick-action-text">
+                <strong>Nueva venta</strong>
+                <small>Punto de venta</small>
+              </span>
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="sidebar-quick-action-arrow">
+                <path d="M9 6l6 6-6 6" />
+              </svg>
+            </NavLink>
+          )}
         </div>
 
         <nav className="sidebar-nav" aria-label="Menú principal">

@@ -11,12 +11,14 @@
     "preview": "vite preview",
     "preview:mobile": "vite preview --host",
     "deploy": "npm run build && firebase deploy --only hosting:stockflow-sistem",
+    "deploy:rules": "firebase deploy --only firestore:rules",
     "deploy:all": "npm run build && firebase deploy"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "firebase": "^12.14.0",
+    "qz-tray": "^2.2.6",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.17.0"

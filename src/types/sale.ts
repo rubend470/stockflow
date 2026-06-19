@@ -109,4 +109,6 @@ export interface SalePayment {
   clientId?: string
   clientName?: string
   createdAt?: string
+  createdBy?: string
+  createdByName?: string
 }
