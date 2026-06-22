@@ -51,9 +51,6 @@ export interface PurchaseInvoiceLineInput {
   unitLabel: string
   unitCost: number
   bundleCost: number
-  updateSalePrice: boolean
-  salePrice: number
-  bundleSalePrice: number
 }
 
 export interface CreatePurchaseInvoiceInput {
@@ -76,25 +73,9 @@ export interface UpdatePurchaseInvoiceInput {
   lines: PurchaseInvoiceLineInput[]
 }
 
-export interface ReceivedProductLine {
-  productId: string
-  productName: string
-  unitLabel: string
-  currencyCode: string
-  previousSalePrice: number
-  newCostPrice: number
-}
-
 export interface CreatePurchaseInvoiceResult {
   id: string
   number: string
-  receivedLines: ReceivedProductLine[]
-}
-
-export interface SalePriceUpdateInput {
-  productId: string
-  salePrice: number
-  bundleSalePrice?: number
 }
 
 export const purchaseInvoiceStatusLabels: Record<PurchaseInvoiceStatus, string> = {
@@ -117,8 +98,5 @@ export function emptyPurchaseInvoiceLine(): PurchaseInvoiceLineInput {
     unitLabel: 'und',
     unitCost: 0,
     bundleCost: 0,
-    updateSalePrice: false,
-    salePrice: 0,
-    bundleSalePrice: 0,
   }
 }

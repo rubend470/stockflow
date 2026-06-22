@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { AppLayout } from '../../../components/layout/AppLayout'
 import { PurchaseInvoiceDetailModal } from '../../../components/inventory/PurchaseInvoiceDetailModal'
 import { PurchaseInvoiceFormModal } from '../../../components/inventory/PurchaseInvoiceFormModal'
-import { PurchaseInvoiceSalePriceModal } from '../../../components/inventory/PurchaseInvoiceSalePriceModal'
 import { AnimatedPanel, AnimatedTableRow } from '../../../components/ui/motion'
 import { TableAction, TableActions } from '../../../components/ui/TableActions'
 import { TablePagination } from '../../../components/ui/TablePagination'
@@ -11,7 +10,6 @@ import { useAuth } from '../../../context/AuthContext'
 import { listCurrencies } from '../../../services/financeService'
 import { createProduct, listAllProducts } from '../../../services/productService'
 import {
-  applySalePriceUpdates,
   cancelPurchaseInvoice,
   createAndReceivePurchaseInvoice,
   listOpenPurchaseInvoices,
@@ -29,7 +27,6 @@ import type { Product, ProductFormInput } from '../../../types/product'
 import type {
   CreatePurchaseInvoiceInput,
   PurchaseInvoice,
-  ReceivedProductLine,
   UpdatePurchaseInvoiceInput,
 } from '../../../types/purchaseInvoice'
 import { formatInvoiceListDate } from '../../../utils/invoiceDate'
@@ -53,9 +50,6 @@ export function PendingInvoicesPage() {
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [detailInvoice, setDetailInvoice] = useState<PurchaseInvoice | null>(null)
-  const [salePriceModalOpen, setSalePriceModalOpen] = useState(false)
-  const [salePriceLines, setSalePriceLines] = useState<ReceivedProductLine[]>([])
-  const [lastInvoiceNumber, setLastInvoiceNumber] = useState('')
 
   const canManage = userHasMenuPermission(user, 'pending-invoices')
   const canViewCost = userCanViewCost(user)
@@ -155,53 +149,13 @@ export function PendingInvoicesPage() {
     try {
       const result = await createAndReceivePurchaseInvoice(values, user.uid, user.name)
       setModalOpen(false)
-      setLastInvoiceNumber(result.number)
-
-      const pendingSalePriceLines = result.receivedLines.filter((receivedLine) => {
-        const inputLine = values.lines.find((line) => line.productId === receivedLine.productId)
-        return !inputLine?.updateSalePrice
-      })
-
-      setSalePriceLines(pendingSalePriceLines)
-      setSalePriceModalOpen(pendingSalePriceLines.length > 0)
-
-      const updatedSalePrices = values.lines.filter((line) => line.updateSalePrice).length
-      if (pendingSalePriceLines.length === 0) {
-        setMessage(
-          updatedSalePrices > 0
-            ? `Entrada ${result.number} registrada. Inventario y ${updatedSalePrices} precio(s) de venta actualizados.`
-            : `Entrada ${result.number} registrada e inventario actualizado.`,
-        )
-      }
+      setMessage(`Entrada ${result.number} registrada e inventario actualizado.`)
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar la factura.')
     } finally {
       setSubmitting(false)
     }
-  }
-
-  async function handleApplySalePrices(updates: Array<{ productId: string; salePrice: number }>) {
-    setSubmitting(true)
-    setError('')
-
-    try {
-      await applySalePriceUpdates(updates)
-      setMessage(
-        `Entrada ${lastInvoiceNumber} registrada. Se actualizaron ${updates.length} precio(s) de venta.`,
-      )
-      setSalePriceModalOpen(false)
-      await loadData()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudieron actualizar los precios.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  function handleSkipSalePrices() {
-    setSalePriceModalOpen(false)
-    setMessage(`Entrada ${lastInvoiceNumber} registrada e inventario actualizado.`)
   }
 
   async function handleSaveDetail(invoiceId: string, values: UpdatePurchaseInvoiceInput) {
@@ -497,16 +451,6 @@ export function PendingInvoicesPage() {
         onClose={() => setModalOpen(false)}
         onSubmit={handleCreate}
         onCreateProduct={handleCreateProduct}
-      />
-
-      <PurchaseInvoiceSalePriceModal
-        open={salePriceModalOpen}
-        invoiceNumber={lastInvoiceNumber}
-        lines={salePriceLines}
-        submitting={submitting}
-        onClose={handleSkipSalePrices}
-        onSkip={handleSkipSalePrices}
-        onApply={handleApplySalePrices}
       />
     </AppLayout>
   )

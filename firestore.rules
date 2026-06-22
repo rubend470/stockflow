@@ -105,6 +105,10 @@ service cloud.firestore {
           && request.resource.data.active == resource.data.active
           && request.resource.data.menuPermissions == resource.data.menuPermissions
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'email', 'updatedAt'])
+        )
+        || (
+          request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['presence', 'updatedAt'])
         );
 
       allow delete: if hasMenuPermission('users');

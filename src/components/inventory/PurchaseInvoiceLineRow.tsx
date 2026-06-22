@@ -55,9 +55,6 @@ export function PurchaseInvoiceLineRow({
         isNewProduct: false,
         productId: '',
         description: '',
-        updateSalePrice: false,
-        salePrice: 0,
-        bundleSalePrice: 0,
       })
       return
     }
@@ -112,9 +109,6 @@ export function PurchaseInvoiceLineRow({
         stockCategoryId: '',
         description: '',
         receiveMode: 'units',
-        updateSalePrice: false,
-        salePrice: 0,
-        bundleSalePrice: 0,
       })
       return
     }
@@ -256,69 +250,6 @@ export function PurchaseInvoiceLineRow({
           </label>
         )}
 
-        {product && (
-          <div className="purchase-sale-price-section">
-            <button
-              type="button"
-              className={`purchase-sale-price-toggle${line.updateSalePrice ? ' is-active' : ''}`}
-              onClick={() => {
-                if (line.updateSalePrice) {
-                  onChange({ updateSalePrice: false })
-                  return
-                }
-
-                onChange({
-                  updateSalePrice: true,
-                  salePrice: product.salePrice,
-                  bundleSalePrice: product.bundleSalePrice ?? 0,
-                })
-              }}
-            >
-              Actualizar precio de venta
-            </button>
-
-            {line.updateSalePrice && (
-              <div className="purchase-sale-price-fields">
-                <label className="purchase-field">
-                  <span>Precio venta / {unitLabel}</span>
-                  <small className="purchase-field-hint-muted">
-                    Actual: {formatMoney(product.salePrice, currencyCode)}
-                  </small>
-                  <MoneyInput
-                    showCurrencyPrefix={false}
-                    min="0"
-                    value={line.salePrice}
-                    onChange={(next) => {
-                      const parsed = parseMoneyInput(next)
-                      onChange({ salePrice: parsed ?? 0 })
-                    }}
-                    required
-                  />
-                </label>
-
-                {allowsBundle && (
-                  <label className="purchase-field">
-                    <span>Precio venta / bulto</span>
-                    <small className="purchase-field-hint-muted">
-                      Actual: {formatMoney(product.bundleSalePrice ?? 0, currencyCode)}
-                    </small>
-                    <MoneyInput
-                      showCurrencyPrefix={false}
-                      min="0"
-                      value={line.bundleSalePrice}
-                      onChange={(next) => {
-                        const parsed = parseMoneyInput(next)
-                        onChange({ bundleSalePrice: parsed ?? 0 })
-                      }}
-                      required
-                    />
-                  </label>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
         {product && allowsBundle && (
           <div className="purchase-field purchase-field-full purchase-receive-field">
             <div className="inventory-stock-mode-toggle purchase-receive-toggle">
@@ -366,8 +297,8 @@ export function PurchaseInvoiceLineRow({
               <label className="purchase-field">
                 <span>
                   {!isCategoryLine && line.receiveMode === 'bundles' && allowsBundle
-                    ? 'Precio / bulto'
-                    : `Precio / ${unitLabel}`}
+                    ? 'Costo / bulto'
+                    : `Costo / ${unitLabel}`}
                 </span>
                 <MoneyInput
                   showCurrencyPrefix={false}

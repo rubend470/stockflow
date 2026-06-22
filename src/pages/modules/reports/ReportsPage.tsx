@@ -15,6 +15,7 @@ import {
   type SalesByDayRow,
   type SalesPeriodStats,
   type TopProductRow,
+  type WastePeriodStats,
 } from '../../../services/reportService'
 import { formatBaseMoney, formatMoney } from '../../../utils/formatMoney'
 import { userCanViewProfit, userHasMenuPermission } from '../../../utils/menuPermissions'
@@ -54,6 +55,10 @@ export function ReportsPage() {
     profit: 0,
     marginPercent: 0,
   })
+  const [wasteSummary, setWasteSummary] = useState<WastePeriodStats>({
+    count: 0,
+    totalCost: 0,
+  })
   const [topProducts, setTopProducts] = useState<TopProductRow[]>([])
   const [byDay, setByDay] = useState<SalesByDayRow[]>([])
   const [byCashier, setByCashier] = useState<SalesByCashierRow[]>([])
@@ -84,6 +89,7 @@ export function ReportsPage() {
     try {
       const data = await getReportData(period, canViewProfit)
       setSummary(data.summary)
+      setWasteSummary(data.wasteSummary)
       setTopProducts(data.topProducts)
       setByDay(data.byDay)
       setByCashier(data.byCashier)
@@ -145,6 +151,32 @@ export function ReportsPage() {
                     <span>Margen bruto</span>
                     <strong className="finance-profit">{formatMargin(summary.marginPercent)}</strong>
                   </article>
+                  {wasteSummary.count > 0 && (
+                    <article>
+                      <span>Pérdidas por merma</span>
+                      <strong className="expense-negative">
+                        {formatBaseMoney(wasteSummary.totalCost)}
+                      </strong>
+                      <small>{wasteSummary.count} registro(s)</small>
+                    </article>
+                  )}
+                  {summary.adjustedProfit !== undefined && wasteSummary.totalCost > 0 && (
+                    <>
+                      <article>
+                        <span>Ganancia neta ajustada</span>
+                        <strong className="finance-profit">
+                          {formatBaseMoney(summary.adjustedProfit)}
+                        </strong>
+                        <small>Bruta − mermas</small>
+                      </article>
+                      <article>
+                        <span>Margen neto ajustado</span>
+                        <strong className="finance-profit">
+                          {formatMargin(summary.adjustedMarginPercent ?? 0)}
+                        </strong>
+                      </article>
+                    </>
+                  )}
                 </>
               )}
               <article>

@@ -79,6 +79,7 @@ function mapSaleItem(id: string, data: Record<string, unknown>): SaleItem {
     id,
     productId: String(data.productId ?? ''),
     productName: String(data.productName ?? ''),
+    isQuickItem: data.isQuickItem === true,
     barcode: data.barcode ? String(data.barcode) : undefined,
     soldBy: (data.soldBy as SoldBy) ?? 'unit',
     saleMode: (data.saleMode as SaleMode) ?? 'retail',
@@ -186,6 +187,20 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
     throw new Error('El monto pagado y acreditado es menor al total de la venta.')
   }
 
+  const saleRef = input.clientRequestId
+    ? doc(db, 'sales', input.clientRequestId)
+    : doc(collection(db, 'sales'))
+  const existingSale = input.clientRequestId ? await getDoc(saleRef) : null
+  if (existingSale?.exists()) {
+    const sale = mapSale(existingSale.id, existingSale.data())
+    return {
+      saleId: sale.id,
+      saleNumber: sale.number,
+      total: sale.total,
+      profitTotal: sale.profitTotal ?? 0,
+    }
+  }
+
   const creditByClient = groupCreditByClient(input.payments)
   if (creditByClient.size > 0) {
     await validateCreditLimits(creditByClient)
@@ -217,7 +232,6 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
   }
 
   const batch = writeBatch(db)
-  const saleRef = doc(collection(db, 'sales'))
   const saleNumber = await getNextSaleNumber()
 
   batch.set(saleRef, {
@@ -247,6 +261,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
     batch.set(itemRef, {
       productId: item.productId,
       productName: item.productName,
+      isQuickItem: item.isQuickItem === true,
       barcode: item.barcode ?? null,
       soldBy: item.soldBy,
       saleMode: item.saleMode,
@@ -261,6 +276,8 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
       lineProfit: item.lineProfit,
       createdAt: serverTimestamp(),
     })
+
+    if (item.isQuickItem) return
 
     const movementRef = doc(collection(db, 'inventory_movements'))
     batch.set(movementRef, {

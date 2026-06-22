@@ -28,7 +28,6 @@ export function TopBar({ title, subtitle, onMenuClick }: TopBarProps) {
       <div className="topbar-right">
         <ThemeToggle />
         <div className="topbar-user">
-          <span className="topbar-avatar">{user?.name?.charAt(0).toUpperCase() ?? 'U'}</span>
           <div>
             <strong>{user?.name}</strong>
             <span>{user ? roleLabels[user.role] : ''}</span>

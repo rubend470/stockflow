@@ -8,6 +8,7 @@ import {
 import { PosSection } from '../../../components/pos/PosSection'
 import { PaymentSection } from '../../../components/pos/PaymentSection'
 import { ProductSearchField } from '../../../components/pos/ProductSearchField'
+import { QuickSaleItemModal } from '../../../components/pos/QuickSaleItemModal'
 import { SaleProcessingOverlay } from '../../../components/pos/SaleProcessingOverlay'
 import { SaleQuantityModal } from '../../../components/pos/SaleQuantityModal'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../../../constants/currency'
@@ -28,6 +29,15 @@ import {
 } from '../../../services/financeService'
 import { findOrCreateClientForCredit, getFrequentCreditClients, listClients } from '../../../services/clientService'
 import { findProductByBarcode, listProducts, seedSampleProducts } from '../../../services/productService'
+import {
+  enqueueOfflineSale,
+  isNetworkError,
+  listOfflineQueuedSales,
+  loadPosOfflineCache,
+  savePosOfflineCache,
+  syncOfflineQueuedSales,
+  type OfflineQueuedSale,
+} from '../../../services/posOfflineService'
 import { getQzFriendlyError, openCashDrawer, printSaleTicket } from '../../../services/qzService'
 import { listStockCategories } from '../../../services/stockCategoryService'
 import { getAppSettings } from '../../../services/settingsService'
@@ -37,10 +47,11 @@ import { createSale } from '../../../services/saleService'
 import type { Client } from '../../../types/client'
 import { pickDefaultPaymentMethod, type Currency, type ExchangeRate, type PaymentMethod } from '../../../types/finance'
 import type { Product, SaleMode } from '../../../types/product'
-import type { CartItem, SalePaymentInput, SaleResult } from '../../../types/sale'
+import type { CartItem, CreateSaleInput, SalePaymentInput, SaleResult } from '../../../types/sale'
 import type { AppSettings } from '../../../types/settings'
 import {
   buildCartItem,
+  buildQuickCartItem,
   canAddProduct,
   findMergeableCartItem,
   getCartTotals,
@@ -53,7 +64,7 @@ import {
   parseMoneyInput,
   roundMoney,
 } from '../../../utils/formatMoney'
-import { isValidPhone } from '../../../utils/phone'
+import { isValidPhone, normalizePhone } from '../../../utils/phone'
 import {
   getDefaultQuantity,
   getDefaultSaleMode,
@@ -151,6 +162,13 @@ function saveStoredOpenSaleDrafts(userId: string, payload: StoredOpenSaleDrafts)
   }
 }
 
+function formatOfflineCacheDate(value: string) {
+  return new Intl.DateTimeFormat('es', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
 export function PosPage() {
   const { user } = useAuth()
   const confirm = useConfirm()
@@ -172,6 +190,10 @@ export function PosPage() {
   const [pendingSaleMode, setPendingSaleMode] = useState<SaleMode>('retail')
   const [pendingQuantity, setPendingQuantity] = useState('1')
   const [pendingError, setPendingError] = useState('')
+  const [quickSaleOpen, setQuickSaleOpen] = useState(false)
+  const [quickSaleName, setQuickSaleName] = useState('')
+  const [quickSalePrice, setQuickSalePrice] = useState('')
+  const [quickSaleError, setQuickSaleError] = useState('')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -188,8 +210,15 @@ export function PosPage() {
   const [postSaleError, setPostSaleError] = useState('')
   const [openSaleDrafts, setOpenSaleDrafts] = useState<OpenSaleDraft[]>([])
   const [activeDraftId, setActiveDraftId] = useState('')
+  const [offlineSales, setOfflineSales] = useState<OfflineQueuedSale[]>([])
+  const [offlineMode, setOfflineMode] = useState(false)
+  const [syncingOfflineSales, setSyncingOfflineSales] = useState(false)
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  )
   const loadedDraftsUserRef = useRef('')
   const draftsReadyRef = useRef(false)
+  const syncingOfflineSalesRef = useRef(false)
 
   const canViewProfit = userCanViewProfit(user)
   const baseCurrency = useMemo(() => getBaseCurrency(currencies), [currencies])
@@ -329,6 +358,46 @@ export function PosPage() {
     }
   }, [paymentAmount, selectedCurrencyCode, baseCurrencyCode, exchangeRates])
 
+  const refreshOfflineSales = useCallback(() => {
+    if (!user) {
+      setOfflineSales([])
+      return []
+    }
+
+    const queuedSales = listOfflineQueuedSales(user.uid)
+    setOfflineSales(queuedSales)
+    return queuedSales
+  }, [user])
+
+  const syncPendingOfflineSales = useCallback(async () => {
+    if (!user || syncingOfflineSalesRef.current || !isOnline) return
+
+    const pendingSales = listOfflineQueuedSales(user.uid)
+    if (pendingSales.length === 0) {
+      setOfflineSales([])
+      return
+    }
+
+    syncingOfflineSalesRef.current = true
+    setSyncingOfflineSales(true)
+
+    try {
+      const synced = await syncOfflineQueuedSales(user.uid, createSale)
+      const remainingQueuedSales = refreshOfflineSales()
+
+      if (synced.length > 0) {
+        setSuccess(
+          remainingQueuedSales.length > 0
+            ? `${synced.length} venta(s) offline sincronizada(s). ${remainingQueuedSales.length} pendiente(s).`
+            : `${synced.length} venta(s) offline sincronizada(s) con la nube.`,
+        )
+      }
+    } finally {
+      syncingOfflineSalesRef.current = false
+      setSyncingOfflineSales(false)
+    }
+  }, [user, isOnline, refreshOfflineSales])
+
   const loadPosData = useCallback(async () => {
     if (!user) return
 
@@ -356,12 +425,38 @@ export function PosPage() {
       setCurrencies(currencyList)
       setPaymentMethods(methodList)
       setExchangeRates(rates)
+      setOfflineMode(false)
+      savePosOfflineCache(user.uid, {
+        products: productList,
+        categories: categoryList,
+        currencies: currencyList,
+        paymentMethods: methodList,
+        exchangeRates: rates,
+        clients: clientList,
+      })
 
       if (loadedDraftsUserRef.current !== user.uid) {
         hydrateOpenSaleDrafts(currencyList, methodList)
       }
     } catch {
-      setError('No se pudo cargar la venta. Revisa Firestore y las reglas de seguridad.')
+      const cached = loadPosOfflineCache(user.uid)
+      if (!cached) {
+        setError('No se pudo cargar la venta. Revisa Firestore y las reglas de seguridad.')
+        return
+      }
+
+      setClients(cached.clients)
+      setCategories(cached.categories)
+      setProducts(enrichProductsWithCategoryStock(cached.products, cached.categories))
+      setCurrencies(cached.currencies)
+      setPaymentMethods(cached.paymentMethods)
+      setExchangeRates(cached.exchangeRates)
+      setOfflineMode(true)
+      setError(`Modo offline: usando datos guardados del ${formatOfflineCacheDate(cached.savedAt)}.`)
+
+      if (loadedDraftsUserRef.current !== user.uid) {
+        hydrateOpenSaleDrafts(cached.currencies, cached.paymentMethods)
+      }
     } finally {
       setLoading(false)
     }
@@ -370,6 +465,35 @@ export function PosPage() {
   useEffect(() => {
     loadPosData()
   }, [loadPosData])
+
+  useEffect(() => {
+    refreshOfflineSales()
+  }, [refreshOfflineSales])
+
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true)
+    }
+
+    function handleOffline() {
+      setIsOnline(false)
+      setOfflineMode(true)
+    }
+
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user || !isOnline) return
+
+    void syncPendingOfflineSales()
+  }, [user, isOnline, syncPendingOfflineSales])
 
   useEffect(() => {
     loadedDraftsUserRef.current = ''
@@ -583,6 +707,41 @@ export function PosPage() {
     }
 
     addProductToCart(product, 1, 'retail')
+  }
+
+  function openQuickSaleModal() {
+    setQuickSaleName('')
+    setQuickSalePrice('')
+    setQuickSaleError('')
+    setQuickSaleOpen(true)
+  }
+
+  function closeQuickSaleModal() {
+    setQuickSaleOpen(false)
+    setQuickSaleError('')
+  }
+
+  function confirmQuickSaleItem() {
+    const name = quickSaleName.trim()
+    const price = parseMoneyInput(quickSalePrice)
+
+    if (!name) {
+      setQuickSaleError('Ingresa el nombre del producto.')
+      return
+    }
+
+    if (!price || price <= 0) {
+      setQuickSaleError('Ingresa un precio final válido.')
+      return
+    }
+
+    setCart((current) => [...current, buildQuickCartItem(name, price)])
+    setSuccess(`Producto rápido "${name}" agregado al carrito.`)
+    setError('')
+    setQuickSaleOpen(false)
+    setQuickSaleName('')
+    setQuickSalePrice('')
+    setQuickSaleError('')
   }
 
   async function handleSearchSubmit() {
@@ -812,6 +971,22 @@ export function PosPage() {
       return null
     }
 
+    if (offlineMode || !isOnline) {
+      const normalizedPhone = normalizePhone(trimmedPhone)
+      const cachedClient = clients.find(
+        (client) =>
+          (client.phone && normalizePhone(client.phone) === normalizedPhone) ||
+          client.name.toLowerCase() === trimmedName.toLowerCase(),
+      )
+
+      if (!cachedClient) {
+        setError('Para vender a crédito offline, el cliente debe existir en este dispositivo.')
+        return null
+      }
+
+      return buildCreditPayment({ ...cachedClient, phone: trimmedPhone }, amountInBase)
+    }
+
     try {
       const client = await findOrCreateClientForCredit(trimmedName, trimmedPhone, clients)
       setClients((current) => {
@@ -940,13 +1115,10 @@ export function PosPage() {
     setPayments((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
-  async function executeCreateSale(salePayments: SalePaymentInput[]) {
-    if (!user) return
-
+  function buildCreateSaleInput(salePayments: SalePaymentInput[]): CreateSaleInput | null {
+    if (!user) return null
     const creditClient = salePayments.find((payment) => payment.isCredit && payment.clientId)
-    const soldItems = [...cart]
-
-    const result = await createSale({
+    return {
       cashierId: user.uid,
       cashierName: user.name,
       clientId: creditClient?.clientId,
@@ -956,7 +1128,19 @@ export function PosPage() {
       items: cart,
       payments: salePayments,
       canViewProfit,
-    })
+    }
+  }
+
+  async function executeCreateSale(salePayments: SalePaymentInput[]) {
+    if (!user) return
+
+    const saleInput = buildCreateSaleInput(salePayments)
+    if (!saleInput) return
+
+    const creditClient = salePayments.find((payment) => payment.isCredit && payment.clientId)
+    const soldItems = [...cart]
+
+    const result = await createSale(saleInput)
 
     const hasCredit = salePayments.some((payment) => payment.isCredit)
     const clientLabel = creditClient?.clientName
@@ -987,6 +1171,29 @@ export function PosPage() {
 
     completeActiveOpenSaleDraft()
     await loadPosData()
+  }
+
+  function queueOfflineSale(salePayments: SalePaymentInput[]) {
+    if (!user) return false
+
+    const saleInput = buildCreateSaleInput(salePayments)
+    if (!saleInput) return false
+
+    const queuedSale = enqueueOfflineSale(user.uid, saleInput)
+    const pendingCount = refreshOfflineSales().length
+    const total = saleInput.items.reduce((sum, item) => sum + item.lineRevenue, 0)
+
+    setOfflineMode(true)
+    setSuccess(
+      `Venta guardada offline por ${formatBaseMoney(total)}. Se sincronizará al volver internet. Pendientes: ${pendingCount}.`,
+    )
+    completeActiveOpenSaleDraft()
+
+    if (queuedSale.status === 'pending' && isOnline) {
+      void syncPendingOfflineSales()
+    }
+
+    return true
   }
 
   function requestPostSaleHardwareAction(request: PostSaleRequest) {
@@ -1053,14 +1260,26 @@ export function PosPage() {
     setError('')
     setSuccess('')
 
+    let salePayments: SalePaymentInput[] | null = null
+
     try {
-      const salePayments = await resolveSalePayments()
+      salePayments = await resolveSalePayments()
       if (!salePayments) {
         setSubmitting(false)
         return
       }
+
+      if (offlineMode || !isOnline) {
+        queueOfflineSale(salePayments)
+        return
+      }
+
       await executeCreateSale(salePayments)
     } catch (err) {
+      if (salePayments && isNetworkError(err)) {
+        queueOfflineSale(salePayments)
+        return
+      }
       setError(err instanceof Error ? err.message : 'No se pudo confirmar la venta.')
     } finally {
       setSubmitting(false)
@@ -1099,11 +1318,36 @@ export function PosPage() {
     )
   }
 
+  const failedOfflineSales = offlineSales.filter((sale) => sale.status === 'failed').length
+  const pendingOfflineSales = offlineSales.length
+
   return (
     <AppLayout title="Venta" subtitle="Registra ventas en mostrador" contentClassName="app-content-pos">
       <div className="pos-page pos-page-register">
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
+        {(offlineMode || pendingOfflineSales > 0) && (
+          <div className="pos-offline-status">
+            <div>
+              <strong>{offlineMode ? 'Modo offline activo' : 'Ventas offline pendientes'}</strong>
+              <span>
+                {pendingOfflineSales > 0
+                  ? `${pendingOfflineSales} venta(s) por sincronizar${
+                      failedOfflineSales > 0 ? ` · ${failedOfflineSales} con error` : ''
+                    }.`
+                  : 'Las ventas se guardarán en este dispositivo hasta recuperar conexión.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className="pos-btn pos-btn-secondary"
+              onClick={syncPendingOfflineSales}
+              disabled={syncingOfflineSales || pendingOfflineSales === 0 || !isOnline}
+            >
+              {syncingOfflineSales ? 'Sincronizando...' : 'Sincronizar'}
+            </button>
+          </div>
+        )}
 
         <section className="pos-open-sales" aria-label="Ventas abiertas">
           <div className="pos-open-sales-header">
@@ -1173,6 +1417,13 @@ export function PosPage() {
               onSubmit={handleSearchSubmit}
               onSelectProduct={handleProductSelect}
             />
+            <button
+              type="button"
+              className="pos-btn pos-btn-secondary pos-btn-block pos-quick-sale-btn"
+              onClick={openQuickSaleModal}
+            >
+              + Producto rápido
+            </button>
           </PosSection>
 
           <PosSection
@@ -1257,6 +1508,17 @@ export function PosPage() {
           onClose={() => setPendingProduct(null)}
         />
       )}
+
+      <QuickSaleItemModal
+        open={quickSaleOpen}
+        name={quickSaleName}
+        price={quickSalePrice}
+        error={quickSaleError}
+        onNameChange={setQuickSaleName}
+        onPriceChange={setQuickSalePrice}
+        onConfirm={confirmQuickSaleItem}
+        onClose={closeQuickSaleModal}
+      />
 
       <PostSaleHardwareDialog
         open={postSaleRequest !== null}

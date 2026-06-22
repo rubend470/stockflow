@@ -9,7 +9,14 @@ export interface AppUser {
   role: UserRole
   active: boolean
   menuPermissions?: string[]
+  presence?: UserPresence
   createdAt: string
+}
+
+export interface UserPresence {
+  state: 'online' | 'offline'
+  lastSeenAt: string
+  activePath?: string
 }
 
 export interface UserFormInput {

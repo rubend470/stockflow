@@ -3,6 +3,7 @@ import { AuthProvider } from './context/AuthContext'
 import { ConfirmProvider } from './context/ConfirmContext'
 import { ThemeProvider } from './context/ThemeContext'
 import { ProtectedRoute, PublicRoute } from './components/ProtectedRoute'
+import { UserPresenceHeartbeat } from './components/UserPresenceHeartbeat'
 import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -12,6 +13,7 @@ import {
   DebtsPage,
   AddProductPage,
   CategoriesPage,
+  WastePage,
   PaymentsPage,
   PendingInvoicesPage,
   PosPage,
@@ -36,6 +38,7 @@ function App() {
       <AuthProvider>
         <ConfirmProvider>
         <BrowserRouter>
+        <UserPresenceHeartbeat />
         <Routes>
           <Route element={<PublicRoute />}>
             <Route path="/login" element={<LoginPage />} />
@@ -52,7 +55,8 @@ function App() {
             <Route path="/inventario/productos/nuevo" element={<AddProductPage />} />
             <Route path="/inventario/categorias" element={<CategoriesPage />} />
             <Route path="/inventario/stock" element={<Navigate to="/inventario/productos" replace />} />
-            <Route path="/inventario/movimientos" element={<Navigate to="/inventario/productos" replace />} />
+            <Route path="/inventario/movimientos" element={<Navigate to="/inventario/mermas" replace />} />
+            <Route path="/inventario/mermas" element={<WastePage />} />
             <Route path="/inventario/proveedores" element={<SuppliersPage />} />
             <Route path="/clientes/directorio" element={<Navigate to="/clientes/deudas" replace />} />
             <Route path="/clientes/deudas" element={<DebtsPage />} />

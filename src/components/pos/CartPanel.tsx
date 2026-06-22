@@ -43,15 +43,19 @@ export function CartPanel({
                   </span>
                 </div>
               </div>
-              <div className="pos-qty-controls">
-                <button type="button" onClick={() => onDecrease(item.key)} aria-label="Disminuir">
-                  −
-                </button>
-                <span>{item.quantity}</span>
-                <button type="button" onClick={() => onIncrease(item.key)} aria-label="Aumentar">
-                  +
-                </button>
-              </div>
+              {item.isQuickItem ? (
+                <span className="pos-quick-item-badge">Sin inventario</span>
+              ) : (
+                <div className="pos-qty-controls">
+                  <button type="button" onClick={() => onDecrease(item.key)} aria-label="Disminuir">
+                    −
+                  </button>
+                  <span>{item.quantity}</span>
+                  <button type="button" onClick={() => onIncrease(item.key)} aria-label="Aumentar">
+                    +
+                  </button>
+                </div>
+              )}
             </li>
           ))}
         </ul>

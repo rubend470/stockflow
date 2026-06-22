@@ -1,4 +1,6 @@
+import type { InventoryMovement } from '../types/inventory'
 import { listCurrencyExchanges } from './currencyExchangeService'
+import { listWasteMovements } from './inventoryMovementService'
 import { getSaleItems, getSalePayments, listSales } from './saleService'
 import type { CurrencyExchange } from '../types/currencyExchange'
 import { roundMoney } from '../utils/formatMoney'
@@ -17,6 +19,7 @@ import type { Sale, SaleItem } from '../types/sale'
 import type { Product, ProductType } from '../types/product'
 import { getStockStatus } from '../types/product'
 import { enrichProductsWithCategoryStock } from '../utils/stockCategory'
+import { getMovementWasteCost } from '../utils/wasteCost'
 import {
   aggregateCashByCurrency,
   mergeCurrencyCashTotals,
@@ -30,6 +33,14 @@ export interface SalesPeriodStats {
   revenue: number
   profit: number
   marginPercent: number
+  wasteCost?: number
+  adjustedProfit?: number
+  adjustedMarginPercent?: number
+}
+
+export interface WastePeriodStats {
+  count: number
+  totalCost: number
 }
 
 export interface TopProductRow {
@@ -248,7 +259,35 @@ export function filterSalesByPeriod(sales: Sale[], period: ReportPeriod) {
   )
 }
 
-export function summarizeSales(sales: Sale[], canViewProfit = true): SalesPeriodStats {
+export function filterWasteByPeriod(movements: InventoryMovement[], period: ReportPeriod) {
+  const now = new Date()
+
+  if (period === 'today') {
+    return movements.filter((movement) => isSameDay(movement.createdAt, now))
+  }
+
+  const start = new Date(now)
+  if (period === 'week') {
+    start.setDate(now.getDate() - 7)
+  } else {
+    start.setMonth(now.getMonth() - 1)
+  }
+
+  return movements.filter((movement) => isInRange(movement.createdAt, start, now))
+}
+
+export function summarizeWaste(movements: InventoryMovement[]): WastePeriodStats {
+  return {
+    count: movements.length,
+    totalCost: roundMoney(movements.reduce((sum, movement) => sum + getMovementWasteCost(movement), 0)),
+  }
+}
+
+export function summarizeSales(
+  sales: Sale[],
+  canViewProfit = true,
+  wasteCost = 0,
+): SalesPeriodStats {
   const totals = sales.reduce(
     (acc, sale) => ({
       count: acc.count + 1,
@@ -258,9 +297,16 @@ export function summarizeSales(sales: Sale[], canViewProfit = true): SalesPeriod
     { count: 0, revenue: 0, profit: 0 },
   )
 
+  const adjustedProfit = canViewProfit ? roundMoney(totals.profit - wasteCost) : 0
+
   return {
     ...totals,
     marginPercent: computeMarginPercent(totals.revenue, totals.profit),
+    wasteCost: canViewProfit ? wasteCost : undefined,
+    adjustedProfit: canViewProfit ? adjustedProfit : undefined,
+    adjustedMarginPercent: canViewProfit
+      ? computeMarginPercent(totals.revenue, adjustedProfit)
+      : undefined,
   }
 }
 
@@ -444,6 +490,7 @@ export async function getDashboardStats(canViewProfit: boolean): Promise<Dashboa
 
 export interface ReportData {
   summary: SalesPeriodStats
+  wasteSummary: WastePeriodStats
   exchangeSummary: CurrencyExchangeSummary
   exchanges: CurrencyExchangeReportRow[]
   exchangeFlowByCurrency: CurrencyExchangeFlowRow[]
@@ -456,16 +503,19 @@ export interface ReportData {
 }
 
 export async function getReportData(period: ReportPeriod, canViewProfit: boolean): Promise<ReportData> {
-  const [sales, products, categories, allExchanges] = await Promise.all([
+  const [sales, products, categories, allExchanges, wasteMovements] = await Promise.all([
     listSales(500),
     listAllProducts(),
     listStockCategories(),
     listCurrencyExchanges(),
+    listWasteMovements(500),
   ])
 
   const periodSales = filterSalesByPeriod(sales, period)
+  const periodWaste = filterWasteByPeriod(wasteMovements, period)
+  const wasteSummary = summarizeWaste(periodWaste)
+  const summary = summarizeSales(periodSales, canViewProfit, wasteSummary.totalCost)
   const periodExchanges = filterExchangesByPeriod(allExchanges, period)
-  const summary = summarizeSales(periodSales, canViewProfit)
   const itemsBySale = await loadSaleItemsMap(periodSales)
   const enrichedProducts = enrichProductsWithCategoryStock(
     products.filter((product) => product.active),
@@ -474,6 +524,7 @@ export async function getReportData(period: ReportPeriod, canViewProfit: boolean
 
   return {
     summary,
+    wasteSummary,
     exchangeSummary: summarizeCurrencyExchanges(periodExchanges),
     exchanges: periodExchanges.map(mapCurrencyExchangeToReportRow),
     exchangeFlowByCurrency: getExchangeFlowByCurrency(periodExchanges),

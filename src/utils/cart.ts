@@ -40,6 +40,28 @@ export function buildCartItem(
   }
 }
 
+export function buildQuickCartItem(name: string, finalPrice: number): CartItem {
+  const price = roundMoney(finalPrice)
+
+  return {
+    key: `quick-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    productId: `quick-${Date.now()}`,
+    productName: name.trim(),
+    isQuickItem: true,
+    saleMode: 'retail',
+    soldBy: 'unit',
+    unitLabel: 'venta',
+    quantity: 1,
+    stockQuantity: 0,
+    unitCost: 0,
+    unitPrice: price,
+    lineCost: 0,
+    lineRevenue: price,
+    lineProfit: price,
+    stockAvailable: 0,
+  }
+}
+
 export function getCartStockUsed(cart: CartItem[], productId: string, stockCategoryId?: string) {
   if (stockCategoryId) {
     return cart
@@ -113,6 +135,8 @@ export function getCartTotals(cart: CartItem[]) {
 }
 
 export function formatCartQuantity(item: CartItem) {
+  if (item.isQuickItem) return 'Producto rápido · precio manual'
+
   const mode = item.saleMode === 'bundle' ? 'al mayor' : 'detal'
 
   if (item.saleMode === 'bundle' && item.unitsPerBundle) {

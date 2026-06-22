@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Product } from '../../types/product'
-import { barcodeMatches, isLikelyBarcode, normalizeBarcode } from '../../utils/barcode'
+import { barcodeMatches, normalizeBarcode } from '../../utils/barcode'
 import { formatProductPrices } from '../../utils/productUnits'
 
 interface ProductSearchFieldProps {
@@ -26,7 +26,7 @@ export function ProductSearchField({
   const barcodeQuery = normalizeBarcode(value)
 
   const exactBarcodeProduct = useMemo(() => {
-    if (!isLikelyBarcode(barcodeQuery)) return undefined
+    if (!barcodeQuery) return undefined
     return products.find((product) => barcodeMatches(product.barcode, barcodeQuery))
   }, [products, barcodeQuery])
 
@@ -47,17 +47,24 @@ export function ProductSearchField({
     inputRef.current?.focus()
   }, [])
 
+  const selectProduct = useCallback((product: Product) => {
+    onChange('')
+    onSelectProduct(product)
+    window.setTimeout(() => inputRef.current?.focus(), 0)
+  }, [onChange, onSelectProduct])
+
   useEffect(() => {
     if (!exactBarcodeProduct || exactBarcodeProduct.stock <= 0) return
     if (lastAutoSelectedBarcodeRef.current === barcodeQuery) return
 
     const timeoutId = window.setTimeout(() => {
+      if (normalizeBarcode(inputRef.current?.value) !== barcodeQuery) return
       lastAutoSelectedBarcodeRef.current = barcodeQuery
-      onSelectProduct(exactBarcodeProduct)
-    }, 120)
+      selectProduct(exactBarcodeProduct)
+    }, 250)
 
     return () => window.clearTimeout(timeoutId)
-  }, [barcodeQuery, exactBarcodeProduct, onSelectProduct])
+  }, [barcodeQuery, exactBarcodeProduct, selectProduct])
 
   useEffect(() => {
     if (!barcodeQuery) {
@@ -87,11 +94,11 @@ export function ProductSearchField({
               if (event.key === 'Enter') {
                 event.preventDefault()
                 if (exactBarcodeProduct) {
-                  onSelectProduct(exactBarcodeProduct)
+                  selectProduct(exactBarcodeProduct)
                   return
                 }
                 if (suggestions.length === 1) {
-                  onSelectProduct(suggestions[0])
+                  selectProduct(suggestions[0])
                   return
                 }
                 onSubmit()
@@ -112,7 +119,7 @@ export function ProductSearchField({
               <button
                 type="button"
                 className="pos-autocomplete-item"
-                onClick={() => onSelectProduct(product)}
+                onClick={() => selectProduct(product)}
                 disabled={product.stock <= 0}
               >
                 <span>

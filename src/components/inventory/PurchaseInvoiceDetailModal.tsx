@@ -84,7 +84,6 @@ export function PurchaseInvoiceDetailModal({
         ? invoice.lines.map((line) =>
             purchaseLineToInput(
               line,
-              products.find((product) => product.id === line.productId),
               stockCategories.find((category) => category.id === line.stockCategoryId),
             ),
           )
@@ -153,11 +152,15 @@ export function PurchaseInvoiceDetailModal({
     const productId = await onCreateProduct(values)
     if (productId) {
       const created = products.find((entry) => entry.id === productId)
+      const currentLine = lines[productModalLineIndex]
+      const unitCost = currentLine?.unitCost || values.costPrice || 0
       updateLine(productModalLineIndex, {
         productId,
         isNewProduct: false,
         description: values.name.trim(),
         ...(created ? productSelectionPatch(created) : {}),
+        unitCost,
+        bundleCost: currentLine?.bundleCost ?? 0,
       })
       setProductModalOpen(false)
     }

@@ -153,11 +153,15 @@ export function PurchaseInvoiceFormModal({
     const productId = await onCreateProduct(values)
     if (productId) {
       const created = products.find((entry) => entry.id === productId)
+      const currentLine = lines[productModalLineIndex]
+      const unitCost = currentLine?.unitCost || values.costPrice || 0
       updateLine(productModalLineIndex, {
         productId,
         isNewProduct: false,
         description: values.name.trim(),
         ...(created ? productSelectionPatch(created) : {}),
+        unitCost,
+        bundleCost: currentLine?.bundleCost ?? 0,
       })
       setProductModalOpen(false)
     }

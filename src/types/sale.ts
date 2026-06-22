@@ -6,6 +6,7 @@ export interface CartItem {
   key: string
   productId: string
   productName: string
+  isQuickItem?: boolean
   barcode?: string
   saleMode: SaleMode
   soldBy: SoldBy
@@ -36,6 +37,7 @@ export interface SalePaymentInput {
 }
 
 export interface CreateSaleInput {
+  clientRequestId?: string
   cashierId: string
   cashierName: string
   cashSessionId?: string
@@ -81,6 +83,7 @@ export interface SaleItem {
   id: string
   productId: string
   productName: string
+  isQuickItem?: boolean
   barcode?: string
   soldBy: SoldBy
   saleMode: SaleMode

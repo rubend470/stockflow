@@ -6,7 +6,7 @@ import { TableAction, TableActions } from '../../../components/ui/TableActions'
 import { useAuth } from '../../../context/AuthContext'
 import { useConfirm } from '../../../context/ConfirmContext'
 import { sendPasswordReset } from '../../../services/authService'
-import { deleteUser, listUsers, updateUser } from '../../../services/userService'
+import { deleteUser, subscribeToUsers, updateUser } from '../../../services/userService'
 import {
   userFormFromUser,
   type AppUser,
@@ -16,6 +16,9 @@ import { formatAppError } from '../../../utils/authErrors'
 import { userHasMenuPermission } from '../../../utils/menuPermissions'
 import { roleLabels } from '../../../utils/roles'
 
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000
+const RECENT_THRESHOLD_MS = 10 * 60 * 1000
+
 function formatDate(value: string) {
   if (!value) return '—'
   return new Intl.DateTimeFormat('es', {
@@ -24,11 +27,68 @@ function formatDate(value: string) {
   }).format(new Date(value))
 }
 
+function formatPresenceAge(ageMs: number) {
+  const seconds = Math.max(0, Math.floor(ageMs / 1000))
+  if (seconds < 10) return 'Ahora'
+  if (seconds < 60) return `Hace ${seconds} s`
+
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `Hace ${minutes} min`
+
+  const hours = Math.floor(minutes / 60)
+  return `Hace ${hours} h`
+}
+
+function routeLabel(path?: string) {
+  if (!path) return '—'
+  if (path === '/') return 'Inicio'
+  if (path.startsWith('/ventas/pos')) return 'Ventas'
+  if (path.startsWith('/ventas/historial')) return 'Historial de ventas'
+  if (path.startsWith('/ventas/cierre')) return 'Cierre de caja'
+  if (path.startsWith('/ventas/facturas-pendientes')) return 'Facturas pendientes'
+  if (path.startsWith('/finanzas/cambio')) return 'Cambio de moneda'
+  if (path.startsWith('/finanzas/gastos')) return 'Gastos'
+  if (path.startsWith('/finanzas/monedas')) return 'Monedas y tasas'
+  if (path.startsWith('/finanzas/pagos')) return 'Formas de pago'
+  if (path.startsWith('/clientes/deudas')) return 'Deudas y créditos'
+  if (path.startsWith('/inventario/productos')) return 'Productos'
+  if (path.startsWith('/inventario/categorias')) return 'Categorías'
+  if (path.startsWith('/inventario/proveedores')) return 'Proveedores'
+  if (path.startsWith('/reportes')) return 'Reportes'
+  if (path.startsWith('/admin/usuarios')) return 'Usuarios'
+  if (path.startsWith('/admin/configuracion')) return 'Configuración'
+  return path
+}
+
+function getPresenceStatus(user: AppUser, now: number) {
+  const lastSeenAt = user.presence?.lastSeenAt
+  if (!lastSeenAt) {
+    return { label: 'Sin actividad', className: 'offline', detail: '—' }
+  }
+
+  const lastSeenTime = new Date(lastSeenAt).getTime()
+  if (Number.isNaN(lastSeenTime)) {
+    return { label: 'Sin actividad', className: 'offline', detail: '—' }
+  }
+
+  const age = now - lastSeenTime
+  if (user.presence?.state === 'online' && age <= ONLINE_THRESHOLD_MS) {
+    return { label: 'En línea', className: 'online', detail: formatPresenceAge(age) }
+  }
+
+  if (age <= RECENT_THRESHOLD_MS) {
+    return { label: 'Reciente', className: 'recent', detail: formatPresenceAge(age) }
+  }
+
+  return { label: 'Desconectado', className: 'offline', detail: formatDate(lastSeenAt) }
+}
+
 export function UsersPage() {
   const { user: currentUser, refreshUser } = useAuth()
   const confirm = useConfirm()
   const [users, setUsers] = useState<AppUser[]>([])
   const [loading, setLoading] = useState(true)
+  const [now, setNow] = useState(() => Date.now())
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -37,22 +97,25 @@ export function UsersPage() {
   const [formValues, setFormValues] = useState<UserFormInput | null>(null)
 
   useEffect(() => {
-    loadUsers()
-  }, [])
-
-  async function loadUsers() {
     setLoading(true)
     setError('')
 
-    try {
-      const data = await listUsers()
-      setUsers(data)
-    } catch {
-      setError('No se pudieron cargar los usuarios. Verifica las reglas de Firestore.')
-    } finally {
-      setLoading(false)
-    }
-  }
+    return subscribeToUsers(
+      (data) => {
+        setUsers(data)
+        setLoading(false)
+      },
+      () => {
+        setError('No se pudieron escuchar los usuarios. Verifica las reglas de Firestore.')
+        setLoading(false)
+      },
+    )
+  }, [])
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 30_000)
+    return () => window.clearInterval(intervalId)
+  }, [])
 
   function openEditModal(user: AppUser) {
     setEditingUser(user)
@@ -158,8 +221,8 @@ export function UsersPage() {
             <p>Edita permisos del menú, roles y activa o desactiva cuentas del equipo.</p>
           </div>
           <div className="finance-panel-actions">
-            <button type="button" className="users-refresh" onClick={loadUsers} disabled={loading}>
-              Actualizar
+            <button type="button" className="users-refresh" disabled>
+              En vivo
             </button>
           </div>
         </div>
@@ -183,6 +246,7 @@ export function UsersPage() {
                   <th>Correo</th>
                   <th>Rol</th>
                   <th>Estado</th>
+                  <th>En línea</th>
                   <th>Registro</th>
                   <th className="table-actions-col">Acciones</th>
                 </tr>
@@ -190,6 +254,7 @@ export function UsersPage() {
               <tbody>
                 {users.map((item) => {
                   const isSelf = item.uid === currentUser.uid
+                  const presence = getPresenceStatus(item, now)
 
                   return (
                     <tr key={item.uid} className={!item.active ? 'inactive-row' : undefined}>
@@ -202,6 +267,15 @@ export function UsersPage() {
                       <td>
                         <span className={`finance-badge ${item.active ? 'ok' : 'inactive'}`}>
                           {item.active ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`users-presence users-presence-${presence.className}`}>
+                          {presence.label}
+                        </span>
+                        <span className="users-presence-detail">
+                          {presence.detail}
+                          {item.presence?.activePath ? ` · ${routeLabel(item.presence.activePath)}` : ''}
                         </span>
                       </td>
                       <td>{formatDate(item.createdAt)}</td>

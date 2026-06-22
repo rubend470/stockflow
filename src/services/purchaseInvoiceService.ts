@@ -20,8 +20,6 @@ import type {
   PurchaseInvoice,
   PurchaseInvoiceLine,
   PurchaseInvoiceLineInput,
-  ReceivedProductLine,
-  SalePriceUpdateInput,
   UpdatePurchaseInvoiceInput,
 } from '../types/purchaseInvoice'
 import { buildExchangeRateSnapshot, convertCurrency } from '../utils/exchangeRates'
@@ -200,29 +198,10 @@ async function normalizeLines(
   return normalized
 }
 
-function unitCostInProductCurrency(
-  line: PurchaseInvoiceLine,
-  product: Product,
-  invoiceCurrency: string,
-  rates: Awaited<ReturnType<typeof listLatestExchangeRates>>,
-) {
-  if (invoiceCurrency === product.currencyCode) {
-    return line.unitCost
-  }
-
-  return convertCurrency(line.unitCost, invoiceCurrency, product.currencyCode, rates)
-}
-
-interface SalePricePatch {
-  salePrice: number
-  bundleSalePrice?: number
-}
-
 function applyStockEntry(
   batch: WriteBatch,
   product: Product,
   line: PurchaseInvoiceLine,
-  unitCostInProduct: number,
   context: {
     invoiceId: string
     invoiceNumber: string
@@ -230,7 +209,6 @@ function applyStockEntry(
   },
   userId: string,
   userName: string,
-  salePricePatch?: SalePricePatch,
 ) {
   const movementRef = doc(collection(db, 'inventory_movements'))
   batch.set(movementRef, {
@@ -239,7 +217,7 @@ function applyStockEntry(
     productName: product.name,
     type: 'purchase',
     quantity: line.quantity,
-    unitCost: unitCostInProduct,
+    unitCost: line.unitCost,
     referenceType: 'purchase_invoice',
     referenceId: context.invoiceId,
     notes: `Entrada factura ${context.invoiceNumber} · ${context.supplierName}`,
@@ -259,20 +237,6 @@ function applyStockEntry(
       updatedAt: serverTimestamp(),
     })
   }
-
-  const productPatch: Record<string, unknown> = {
-    costPrice: unitCostInProduct,
-    updatedAt: serverTimestamp(),
-  }
-
-  if (salePricePatch) {
-    productPatch.salePrice = roundMoney(salePricePatch.salePrice)
-    if (salePricePatch.bundleSalePrice !== undefined) {
-      productPatch.bundleSalePrice = roundMoney(salePricePatch.bundleSalePrice)
-    }
-  }
-
-  batch.update(doc(db, 'products', product.id), productPatch)
 }
 
 function applyCategoryStockEntry(
@@ -477,11 +441,8 @@ export async function createAndReceivePurchaseInvoice(
   const invoiceDate = input.invoiceDate?.trim() || todayInputValue()
   const ref = doc(collection(db, 'purchase_invoices'))
   const batch = writeBatch(db)
-  const receivedLines: ReceivedProductLine[] = []
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    const inputLine = input.lines[index]
+  for (const line of lines) {
     const stockContext = {
       invoiceId: ref.id,
       invoiceNumber: number,
@@ -498,37 +459,7 @@ export async function createAndReceivePurchaseInvoice(
     const product = await getProductById(line.productId)
     if (!product) continue
 
-    const costInProduct = roundMoney(
-      unitCostInProductCurrency(line, product, currencyCode, rates),
-    )
-
-    let salePricePatch: SalePricePatch | undefined
-    if (inputLine?.updateSalePrice && inputLine.salePrice > 0) {
-      salePricePatch = { salePrice: inputLine.salePrice }
-      if (productAllowsBundle(product) && inputLine.bundleSalePrice > 0) {
-        salePricePatch.bundleSalePrice = inputLine.bundleSalePrice
-      }
-    }
-
-    applyStockEntry(
-      batch,
-      product,
-      line,
-      costInProduct,
-      stockContext,
-      userId,
-      userName,
-      salePricePatch,
-    )
-
-    receivedLines.push({
-      productId: product.id,
-      productName: product.name,
-      unitLabel: product.unitLabel,
-      currencyCode: product.currencyCode,
-      previousSalePrice: product.salePrice,
-      newCostPrice: costInProduct,
-    })
+    applyStockEntry(batch, product, line, stockContext, userId, userName)
   }
 
   batch.set(ref, {
@@ -558,7 +489,6 @@ export async function createAndReceivePurchaseInvoice(
   return {
     id: ref.id,
     number,
-    receivedLines,
   }
 }
 
@@ -566,31 +496,6 @@ export async function createAndReceivePurchaseInvoice(
 export async function createPurchaseInvoice(input: CreatePurchaseInvoiceInput, userId: string) {
   const result = await createAndReceivePurchaseInvoice(input, userId, '')
   return result.id
-}
-
-export async function applySalePriceUpdates(updates: SalePriceUpdateInput[]) {
-  const batch = writeBatch(db)
-  let hasWrites = false
-
-  updates.forEach((update) => {
-    if (!update.productId || update.salePrice < 0) return
-
-    const patch: Record<string, unknown> = {
-      salePrice: roundMoney(update.salePrice),
-      updatedAt: serverTimestamp(),
-    }
-
-    if (update.bundleSalePrice !== undefined && update.bundleSalePrice >= 0) {
-      patch.bundleSalePrice = roundMoney(update.bundleSalePrice)
-    }
-
-    batch.update(doc(db, 'products', update.productId), patch)
-    hasWrites = true
-  })
-
-  if (hasWrites) {
-    await batch.commit()
-  }
 }
 
 export async function updatePurchaseInvoice(
@@ -672,10 +577,7 @@ export async function updatePurchaseInvoice(
       reverseStockEntry(batch, product, oldLine, stockContext, userId, userName)
     }
 
-    for (let index = 0; index < newLines.length; index += 1) {
-      const line = newLines[index]
-      const inputLine = input.lines[index]
-
+    for (const line of newLines) {
       if (line.stockCategoryId) {
         const category = await getStockCategoryById(line.stockCategoryId)
         if (category) {
@@ -687,28 +589,7 @@ export async function updatePurchaseInvoice(
       const product = await getProductById(line.productId)
       if (!product) continue
 
-      const costInProduct = roundMoney(
-        unitCostInProductCurrency(line, product, currencyCode, rates),
-      )
-
-      let salePricePatch: SalePricePatch | undefined
-      if (inputLine?.updateSalePrice && inputLine.salePrice > 0) {
-        salePricePatch = { salePrice: inputLine.salePrice }
-        if (productAllowsBundle(product) && inputLine.bundleSalePrice > 0) {
-          salePricePatch.bundleSalePrice = inputLine.bundleSalePrice
-        }
-      }
-
-      applyStockEntry(
-        batch,
-        product,
-        line,
-        costInProduct,
-        stockContext,
-        userId,
-        userName,
-        salePricePatch,
-      )
+      applyStockEntry(batch, product, line, stockContext, userId, userName)
     }
   }
 
@@ -776,7 +657,6 @@ export async function receivePurchaseInvoice(id: string, userId: string, userNam
     throw new Error('Solo puedes registrar entrada en facturas pendientes.')
   }
 
-  const rates = await listLatestExchangeRates()
   const batch = writeBatch(db)
 
   for (const line of invoice.lines) {
@@ -799,11 +679,7 @@ export async function receivePurchaseInvoice(id: string, userId: string, userNam
     const product = await getProductById(line.productId)
     if (!product) continue
 
-    const costInProduct = roundMoney(
-      unitCostInProductCurrency(line, product, invoice.currencyCode, rates),
-    )
-
-    applyStockEntry(batch, product, line, costInProduct, stockContext, userId, userName)
+    applyStockEntry(batch, product, line, stockContext, userId, userName)
   }
 
   const status =

@@ -52,6 +52,13 @@ export const navigation: NavItem[] = [
         icon: 'clients',
         roles: ['super_admin', 'admin'],
       },
+      {
+        id: 'waste',
+        label: 'Mermas y pérdidas',
+        path: '/inventario/mermas',
+        icon: 'products',
+        roles: ['super_admin', 'admin'],
+      },
     ],
   },
   {

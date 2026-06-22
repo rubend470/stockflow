@@ -363,19 +363,19 @@ export function ExpensesPage() {
               <tbody>
                 {summary.expenses.map((expense, index) => (
                   <AnimatedTableRow key={expense.id} index={index}>
-                    <td>{formatDate(expense.expenseDate)}</td>
-                    <td>
+                    <td data-label="Fecha">{formatDate(expense.expenseDate)}</td>
+                    <td data-label="Gasto">
                       <strong>{expense.description}</strong>
                       {expense.notes && <small className="expense-note">{expense.notes}</small>}
                     </td>
-                    <td>
+                    <td data-label="Categoría">
                       <span className="finance-badge inactive">{expense.category}</span>
                     </td>
-                    <td>
+                    <td data-label="Monto">
                       <strong>{formatBaseMoney(expense.amountInBase)}</strong>
                     </td>
-                    <td>{expense.createdByName || '-'}</td>
-                    <td className="table-actions-col">
+                    <td data-label="Registrado por">{expense.createdByName || '-'}</td>
+                    <td className="table-actions-col" data-label="Acciones">
                       <TableActions>
                         <TableAction icon="edit" onClick={() => editExpense(expense)}>
                           Editar

@@ -110,15 +110,12 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const items = useMemo(() => filterNavigation(navigation, user), [user])
   const canOpenPos = userHasMenuPermission(user, 'pos')
 
-  const userInitial = user?.name?.charAt(0).toUpperCase() ?? 'U'
-
   return (
     <>
       <div className={`sidebar-backdrop ${open ? 'visible' : ''}`} onClick={onClose} />
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="sidebar-brand">
           <div className="sidebar-brand-main">
-            <span className="sidebar-logo">SF</span>
             <div>
               <strong>StockFlow</strong>
               <span>Abasto y charcutería</span>
@@ -166,7 +163,6 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         <div className="sidebar-footer">
           <div className="sidebar-user-card">
-            <span className="sidebar-user-avatar">{userInitial}</span>
             <div className="sidebar-user-info">
               <strong>{user?.name ?? 'Usuario'}</strong>
               <span>{user ? roleLabels[user.role] : ''}</span>

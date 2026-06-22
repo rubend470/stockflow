@@ -282,6 +282,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  min-width: 0;
 }
 
 .expense-form-grid,
@@ -289,10 +290,13 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .finance-field textarea {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   padding: 0.75rem 0.85rem;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
@@ -318,6 +322,7 @@
 }
 
 .expense-metrics article {
+  min-width: 0;
   padding: 0.9rem 1rem;
   border: 1px solid var(--border);
   border-radius: 0.85rem;
@@ -391,16 +396,19 @@
   border: 1px solid var(--border);
   border-radius: 0.75rem;
   background: color-mix(in srgb, var(--surface-muted) 75%, var(--surface));
+  min-width: 0;
 }
 
 .expense-category-list span {
   color: var(--text-muted);
   font-weight: 600;
+  min-width: 0;
 }
 
 .expense-category-list strong,
 .expenses-table strong {
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .expenses-table-panel {
@@ -723,6 +731,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .finance-field-full {
@@ -738,7 +747,9 @@
 .finance-field input,
 .finance-field select,
 .finance-select {
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
   padding: 0.75rem 0.85rem;
   border: 1px solid var(--border);
   border-radius: 0.75rem;
@@ -750,6 +761,7 @@
 .finance-field select,
 .finance-select {
   appearance: none;
+  max-width: 100%;
   padding-right: 2.25rem;
   background-image:
     linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
@@ -1242,9 +1254,45 @@
     grid-template-columns: 1fr;
   }
 
+  .expense-form-grid,
+  .expense-range,
+  .expense-form-grid .finance-field,
+  .expense-range .finance-field {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .expense-form-grid input[type='date'],
+  .expense-range input[type='date'] {
+    appearance: none;
+    -webkit-appearance: none;
+    display: block;
+    inline-size: 100%;
+    max-inline-size: 100%;
+    min-inline-size: 0;
+    text-align: left;
+  }
+
   .expense-form-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .expenses-layout {
+    gap: 0.75rem;
+  }
+
+  .expense-form {
+    gap: 0.8rem;
+  }
+
+  .expense-metrics {
+    gap: 0.65rem;
+  }
+
+  .expense-metrics article,
+  .expense-category-list div {
+    padding: 0.85rem;
   }
 
   .finance-panel-header,
@@ -1324,9 +1372,115 @@
   }
 }
 
+@media (max-width: 640px) {
+  .expenses-table-panel {
+    overflow: visible;
+  }
+
+  .expenses-table-panel .finance-table-wrap {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  .expenses-table {
+    display: block;
+    min-width: 0;
+  }
+
+  .expenses-table thead {
+    display: none;
+  }
+
+  .expenses-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .expenses-table tr {
+    display: grid;
+    gap: 0.65rem;
+    padding: 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 0.85rem;
+    background: var(--surface-muted);
+  }
+
+  .expenses-table tbody tr:nth-child(even) {
+    background: var(--surface-muted);
+  }
+
+  .expenses-table td {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.85rem;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    text-align: right;
+  }
+
+  .expenses-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: left;
+  }
+
+  .expenses-table td > * {
+    min-width: 0;
+  }
+
+  .expenses-table td:nth-child(2) {
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    gap: 0.25rem;
+  }
+
+  .expenses-table td:nth-child(2)::before {
+    margin-bottom: 0.1rem;
+  }
+
+  .expenses-table .table-actions-col {
+    width: auto;
+    white-space: normal;
+  }
+
+  .expenses-table .table-actions-col::before {
+    align-self: center;
+  }
+
+  .expenses-table .table-action-group {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
+
 @media (max-width: 380px) {
   .finance-stats,
   .sales-currency-grid {
     grid-template-columns: 1fr;
+  }
+
+  .finance-panel {
+    padding: 0.85rem;
+  }
+
+  .expense-metrics {
+    gap: 0.55rem;
+  }
+
+  .expense-category-list div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
   }
 }

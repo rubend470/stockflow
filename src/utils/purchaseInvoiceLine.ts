@@ -91,10 +91,7 @@ export function switchReceiveMode(
     return {
       receiveMode: 'bundles',
       inputQuantity: bundles > 0 ? bundles : 0,
-      bundleCost:
-        line.bundleCost ||
-        product.bundleCostPrice ||
-        product.costPrice * unitsPerBundle,
+      bundleCost: line.bundleCost || 0,
     }
   }
 
@@ -106,13 +103,12 @@ export function switchReceiveMode(
   return {
     receiveMode: 'units',
     inputQuantity: units > 0 ? units : 0,
-    unitCost: line.unitCost || product.costPrice,
+    unitCost: line.unitCost,
   }
 }
 
 export function purchaseLineToInput(
   line: PurchaseInvoiceLine,
-  product?: Product,
   category?: StockCategory,
 ): PurchaseInvoiceLineInput {
   if (line.stockCategoryId) {
@@ -127,9 +123,6 @@ export function purchaseLineToInput(
       unitLabel: line.unitLabel || category?.unitLabel || 'kg',
       unitCost: line.unitCost,
       bundleCost: 0,
-      updateSalePrice: false,
-      salePrice: 0,
-      bundleSalePrice: 0,
     }
   }
 
@@ -147,9 +140,6 @@ export function purchaseLineToInput(
     unitLabel: line.unitLabel,
     unitCost: line.unitCost,
     bundleCost: line.bundleUnitCost ?? line.unitCost * (line.unitsPerBundle ?? 1),
-    updateSalePrice: false,
-    salePrice: product?.salePrice ?? 0,
-    bundleSalePrice: product?.bundleSalePrice ?? 0,
   }
 }
 
@@ -191,30 +181,22 @@ export function validatePurchaseInvoiceLines(
   }
 
   const invalidCategoryCost = lines.find(
-    (line) => line.lineType === 'category' && line.unitCost < 0,
+    (line) => line.lineType === 'category' && line.unitCost <= 0,
   )
   if (invalidCategoryCost) {
-    return `El costo no puede ser negativo en «${invalidCategoryCost.description}».`
+    return `Indica el costo unitario en «${invalidCategoryCost.description}».`
   }
 
-  const invalidSalePrice = lines.find(
-    (line) => line.lineType === 'product' && line.updateSalePrice && line.salePrice <= 0,
-  )
-  if (invalidSalePrice) {
-    return `Indica el precio de venta por ${invalidSalePrice.unitLabel} en «${invalidSalePrice.description}».`
-  }
-
-  const invalidBundleSalePrice = lines.find((line) => {
-    if (!line.updateSalePrice || line.salePrice <= 0) return false
+  const invalidProductCost = lines.find((line) => {
+    if (line.lineType !== 'product') return false
     const catalogProduct = products.find((entry) => entry.id === line.productId)
-    return (
-      catalogProduct &&
-      productAllowsBundle(catalogProduct) &&
-      line.bundleSalePrice <= 0
-    )
+    if (line.receiveMode === 'bundles' && catalogProduct && productAllowsBundle(catalogProduct)) {
+      return (line.bundleCost ?? 0) <= 0
+    }
+    return line.unitCost <= 0
   })
-  if (invalidBundleSalePrice) {
-    return `Indica el precio de venta al mayor en «${invalidBundleSalePrice.description}».`
+  if (invalidProductCost) {
+    return `Indica el costo en la moneda de la factura para «${invalidProductCost.description}».`
   }
 
   return null
@@ -229,28 +211,17 @@ export function categorySelectionPatch(category: StockCategory): Partial<Purchas
     description: category.name,
     unitLabel: category.unitLabel,
     receiveMode: 'units',
-    updateSalePrice: false,
-    salePrice: 0,
-    bundleSalePrice: 0,
   }
 }
 
 export function productSelectionPatch(product: Product): Partial<PurchaseInvoiceLineInput> {
-  const patch: Partial<PurchaseInvoiceLineInput> = {
+  return {
     lineType: 'product',
     stockCategoryId: '',
     description: product.name,
     unitLabel: product.unitLabel,
-    unitCost: product.costPrice,
-    bundleCost: product.bundleCostPrice ?? product.costPrice * getUnitsPerBundle(product),
-    updateSalePrice: false,
-    salePrice: product.salePrice,
-    bundleSalePrice: product.bundleSalePrice ?? 0,
+    receiveMode: 'units',
+    unitCost: 0,
+    bundleCost: 0,
   }
-
-  if (!productAllowsBundle(product)) {
-    patch.receiveMode = 'units'
-  }
-
-  return patch
 }
