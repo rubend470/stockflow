@@ -1,6 +1,6 @@
 import type { Product, SaleMode } from '../types/product'
 import type { CartItem } from '../types/sale'
-import { roundMoney } from './formatMoney'
+import { formatBaseMoney, roundMoney } from './formatMoney'
 import { getStockQuantity, productAllowsBundle } from './productUnits'
 
 export function buildCartItem(
@@ -8,6 +8,7 @@ export function buildCartItem(
   quantity: number,
   saleMode: SaleMode,
   categoryName?: string,
+  enteredAmount?: number,
 ): CartItem {
   const isBundle = saleMode === 'bundle'
 
@@ -16,7 +17,7 @@ export function buildCartItem(
   const unitLabel = isBundle ? 'al mayor' : product.unitLabel
   const stockQuantity = getStockQuantity(product, quantity, saleMode)
   const lineCost = roundMoney(unitCost * quantity)
-  const lineRevenue = roundMoney(unitPrice * quantity)
+  const lineRevenue = enteredAmount === undefined ? roundMoney(unitPrice * quantity) : roundMoney(enteredAmount)
 
   return {
     key: `${product.id}-${saleMode}-${Date.now()}`,
@@ -31,6 +32,7 @@ export function buildCartItem(
     stockQuantity,
     unitCost,
     unitPrice,
+    enteredAmount,
     lineCost,
     lineRevenue,
     lineProfit: roundMoney(lineRevenue - lineCost),
@@ -114,6 +116,7 @@ export function updateCartItemQuantity(cart: CartItem[], key: string, quantity: 
         ...item,
         quantity,
         stockQuantity,
+        enteredAmount: undefined,
         lineCost,
         lineRevenue,
         lineProfit: lineRevenue - lineCost,
@@ -138,6 +141,10 @@ export function formatCartQuantity(item: CartItem) {
   if (item.isQuickItem) return 'Producto rápido · precio manual'
 
   const mode = item.saleMode === 'bundle' ? 'al mayor' : 'detal'
+
+  if (item.enteredAmount !== undefined) {
+    return `${mode}: ${item.quantity} ${item.unitLabel} · Importe: ${formatBaseMoney(item.enteredAmount)}`
+  }
 
   if (item.saleMode === 'bundle' && item.unitsPerBundle) {
     const baseTotal = item.quantity * item.unitsPerBundle

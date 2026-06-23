@@ -16,6 +16,7 @@ export interface CartItem {
   stockQuantity: number
   unitCost: number
   unitPrice: number
+  enteredAmount?: number
   lineCost: number
   lineRevenue: number
   lineProfit: number
@@ -93,6 +94,7 @@ export interface SaleItem {
   stockQuantity: number
   unitCost: number
   unitPrice: number
+  enteredAmount?: number
   lineCost: number
   lineRevenue: number
   lineProfit: number

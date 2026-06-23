@@ -27,32 +27,55 @@ async function ensureQzConnection() {
   }
 }
 
-async function resolvePrinterName() {
-  await ensureQzConnection()
-
-  const jaltechPrinters = await qz.printers.find('Jaltech')
-  if (Array.isArray(jaltechPrinters) && jaltechPrinters.length > 0) {
-    return jaltechPrinters[0]
+function firstPrinter(printers: string[] | string) {
+  if (Array.isArray(printers) && printers.length > 0) {
+    return printers[0]
   }
-  if (typeof jaltechPrinters === 'string' && jaltechPrinters.trim()) {
-    return jaltechPrinters
+  if (typeof printers === 'string' && printers.trim()) {
+    return printers
   }
 
-  return qz.printers.getDefault()
+  return null
+}
+
+async function findJaltechPrinter() {
+  try {
+    return firstPrinter(await qz.printers.find('Jaltech'))
+  } catch (error) {
+    if (/not found|printer/i.test(error instanceof Error ? error.message : String(error))) {
+      return null
+    }
+    throw error
+  }
 }
 
 async function resolvePrinterTarget() {
   await ensureQzConnection()
 
-  const jaltechPrinters = await qz.printers.find('Jaltech')
-  if (Array.isArray(jaltechPrinters) && jaltechPrinters.length > 0) {
-    return { name: jaltechPrinters[0], rawEscPos: true }
-  }
-  if (typeof jaltechPrinters === 'string' && jaltechPrinters.trim()) {
-    return { name: jaltechPrinters, rawEscPos: true }
+  const jaltechPrinter = await findJaltechPrinter()
+  if (jaltechPrinter) {
+    return { name: jaltechPrinter, rawEscPos: true }
   }
 
-  return { name: await qz.printers.getDefault(), rawEscPos: false }
+  try {
+    const defaultPrinter = await qz.printers.getDefault()
+    if (defaultPrinter.trim()) {
+      return { name: defaultPrinter, rawEscPos: false }
+    }
+  } catch {
+    // Fall through to any available printer when the operating system has no default.
+  }
+
+  const availablePrinter = firstPrinter(await qz.printers.find())
+  if (availablePrinter) {
+    return { name: availablePrinter, rawEscPos: false }
+  }
+
+  throw new Error('No se encontró ninguna impresora disponible.')
+}
+
+async function resolvePrinterName() {
+  return (await resolvePrinterTarget()).name
 }
 
 function cleanText(value: string) {

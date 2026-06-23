@@ -188,7 +188,9 @@ export function PosPage() {
   const [paymentReference, setPaymentReference] = useState('')
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null)
   const [pendingSaleMode, setPendingSaleMode] = useState<SaleMode>('retail')
+  const [pendingEntryMode, setPendingEntryMode] = useState<'quantity' | 'amount'>('quantity')
   const [pendingQuantity, setPendingQuantity] = useState('1')
+  const [pendingAmount, setPendingAmount] = useState('')
   const [pendingError, setPendingError] = useState('')
   const [quickSaleOpen, setQuickSaleOpen] = useState(false)
   const [quickSaleName, setQuickSaleName] = useState('')
@@ -664,11 +666,13 @@ export function PosPage() {
     const saleMode = getDefaultSaleMode(product)
     setPendingProduct(product)
     setPendingSaleMode(saleMode)
+    setPendingEntryMode('quantity')
     setPendingQuantity(getDefaultQuantity(product, saleMode))
+    setPendingAmount('')
     setPendingError('')
   }
 
-  function addProductToCart(product: Product, quantity: number, saleMode: SaleMode) {
+  function addProductToCart(product: Product, quantity: number, saleMode: SaleMode, enteredAmount?: number) {
     if (quantity <= 0) {
       setError('La cantidad debe ser mayor a cero.')
       return
@@ -683,7 +687,7 @@ export function PosPage() {
     setSuccess('')
     setSearchQuery('')
 
-    const existing = findMergeableCartItem(cart, product, saleMode)
+    const existing = enteredAmount === undefined ? findMergeableCartItem(cart, product, saleMode) : undefined
     if (existing) {
       const nextQty = Number((existing.quantity + quantity).toFixed(3))
       if (!canAddProduct(product, cart, quantity, saleMode)) {
@@ -697,7 +701,7 @@ export function PosPage() {
     const categoryName = product.stockCategoryId
       ? categoryMap.get(product.stockCategoryId)?.name
       : undefined
-    setCart((current) => [...current, buildCartItem(product, quantity, saleMode, categoryName)])
+    setCart((current) => [...current, buildCartItem(product, quantity, saleMode, categoryName, enteredAmount)])
   }
 
   function handleProductSelect(product: Product) {
@@ -1289,14 +1293,23 @@ export function PosPage() {
   function confirmPendingProduct() {
     if (!pendingProduct) return
 
-    const quantity = Number(pendingQuantity)
-    if (!quantity || quantity <= 0) {
-      setPendingError('Ingresa una cantidad válida.')
+    const product = pendingProduct
+    const saleMode = pendingSaleMode
+    const canEnterAmount =
+      saleMode === 'retail' && (product.soldBy === 'weight' || product.type === 'charcuteria')
+    const enteredAmount = canEnterAmount && pendingEntryMode === 'amount' ? parseMoneyInput(pendingAmount) : undefined
+    const quantity =
+      enteredAmount === undefined ? Number(pendingQuantity) : Number((enteredAmount / product.salePrice).toFixed(3))
+
+    if (enteredAmount !== undefined && (!enteredAmount || enteredAmount <= 0)) {
+      setPendingError('Ingresa un importe válido.')
       return
     }
 
-    const product = pendingProduct
-    const saleMode = pendingSaleMode
+    if (!quantity || quantity <= 0) {
+      setPendingError(enteredAmount === undefined ? 'Ingresa una cantidad válida.' : 'El importe es muy bajo para este producto.')
+      return
+    }
 
     if (!canAddProduct(product, cart, quantity, saleMode)) {
       const unit = saleMode === 'bundle' ? 'al mayor' : product.unitLabel
@@ -1304,9 +1317,11 @@ export function PosPage() {
       return
     }
 
-    addProductToCart(product, quantity, saleMode)
+    addProductToCart(product, quantity, saleMode, enteredAmount)
     setPendingProduct(null)
+    setPendingEntryMode('quantity')
     setPendingQuantity('1')
+    setPendingAmount('')
     setPendingError('')
   }
 
@@ -1500,10 +1515,14 @@ export function PosPage() {
           product={pendingProduct}
           open
           saleMode={pendingSaleMode}
+          entryMode={pendingEntryMode}
           quantity={pendingQuantity}
+          amount={pendingAmount}
           error={pendingError}
           onSaleModeChange={setPendingSaleMode}
+          onEntryModeChange={setPendingEntryMode}
           onQuantityChange={setPendingQuantity}
+          onAmountChange={setPendingAmount}
           onConfirm={confirmPendingProduct}
           onClose={() => setPendingProduct(null)}
         />
