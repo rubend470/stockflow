@@ -5,8 +5,9 @@ import { ProductForm } from '../../../components/inventory/ProductForm'
 import { useAuth } from '../../../context/AuthContext'
 import { ensureFinanceDefaults } from '../../../services/financeService'
 import { createProduct } from '../../../services/productService'
+import { ensureDefaultProductTypes, listProductTypes } from '../../../services/productTypeService'
 import { listStockCategories } from '../../../services/stockCategoryService'
-import { emptyProductForm, type ProductFormInput } from '../../../types/product'
+import { emptyProductForm, type ProductFormInput, type ProductTypeOption } from '../../../types/product'
 import type { StockCategory } from '../../../types/stockCategory'
 import { userCanViewCost, userHasMenuPermission } from '../../../utils/menuPermissions'
 
@@ -18,14 +19,17 @@ export function AddProductPage() {
   const [message, setMessage] = useState('')
   const [formKey, setFormKey] = useState(0)
   const [stockCategories, setStockCategories] = useState<StockCategory[]>([])
+  const [productTypes, setProductTypes] = useState<ProductTypeOption[]>([])
 
   const canManage = userHasMenuPermission(user, 'add-product')
 
   useEffect(() => {
     if (user) {
       ensureFinanceDefaults(user.uid).catch(() => undefined)
+      ensureDefaultProductTypes(user.uid).catch(() => undefined)
     }
     listStockCategories().then(setStockCategories).catch(() => undefined)
+    listProductTypes().then(setProductTypes).catch(() => undefined)
   }, [user])
   const canViewCost = userCanViewCost(user)
 
@@ -91,6 +95,7 @@ export function AddProductPage() {
             key={formKey}
             initialValues={emptyProductForm()}
             stockCategories={stockCategories}
+            productTypes={productTypes}
             canViewCost={canViewCost}
             submitting={submitting}
             submitLabel="Guardar producto"
@@ -104,8 +109,8 @@ export function AddProductPage() {
         <aside className="inventory-help-card">
           <h3>Consejos rápidos</h3>
           <ul>
-            <li><strong>Abasto</strong>: productos por unidad (arroz, aceite, harina).</li>
-            <li><strong>Charcutería</strong>: carnes, quesos y embutidos por peso (kg).</li>
+            <li><strong>Tipo</strong>: clasifica el producto como abasto, charcutería, bebidas u otro.</li>
+            <li><strong>Venta</strong>: decide si se vende por unidad o por peso (kg/lb).</li>
             <li>El <strong>código de barras</strong> permite escanear al vender.</li>
             <li>
               <strong>Al mayor</strong>: indica cuántas unidades trae (ej. 10 und). Al cargar stock puedes

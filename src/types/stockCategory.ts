@@ -2,6 +2,7 @@ export interface StockCategory {
   id: string
   name: string
   unitLabel: string
+  costPrice: number
   stock: number
   minStock: number
   active: boolean
@@ -12,6 +13,7 @@ export interface StockCategory {
 export interface StockCategoryFormInput {
   name: string
   unitLabel: string
+  costPrice: number
   stock: number
   minStock: number
 }
@@ -23,9 +25,16 @@ export interface CreateCategoryMovementInput {
   notes?: string
 }
 
+export interface CreateCategoryLossInput {
+  stockCategoryId: string
+  quantity: number
+  notes?: string
+}
+
 export const emptyStockCategoryForm = (): StockCategoryFormInput => ({
   name: '',
   unitLabel: 'kg',
+  costPrice: 0,
   stock: 0,
   minStock: 5,
 })

@@ -1,5 +1,4 @@
 import {
-  collection,
   deleteDoc,
   doc,
   getDocs,
@@ -9,11 +8,12 @@ import {
   where,
 } from 'firebase/firestore'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
-import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type {
   CashClosure,
   CashClosureExchangeLine,
   CashClosureLoanLine,
+  CashClosureMovementLine,
   CashClosureMethodTotal,
   CashClosurePaymentLine,
   CashClosureReport,
@@ -25,6 +25,7 @@ import { stripUndefinedDeep } from '../utils/firestore'
 import { roundMoney } from '../utils/formatMoney'
 import { aggregateCashByCurrency, mergeCurrencyCashTotals } from '../utils/salePayments'
 import { listCurrencyExchanges } from './currencyExchangeService'
+import { listCashMovementsByDate } from './cashMovementService'
 import { getSalePayments, listSales } from './saleService'
 import type { DebtPayment } from '../types/debt'
 import type { SalePayment } from '../types/sale'
@@ -155,6 +156,7 @@ function buildNetByCurrency(
   cashByCurrency: ReturnType<typeof aggregateCashByCurrency>,
   exchanges: CashClosureExchangeLine[],
   loansGiven: CashClosureLoanLine[],
+  cashMovements: CashClosureMovementLine[],
 ) {
   const netMap = new Map<string, { cashIn: number; cashOut: number }>()
 
@@ -180,6 +182,16 @@ function buildNetByCurrency(
     netMap.set(loan.currencyCode, out)
   })
 
+  cashMovements.forEach((movement) => {
+    const row = netMap.get(movement.currencyCode) ?? { cashIn: 0, cashOut: 0 }
+    if (movement.type === 'out') {
+      row.cashOut = roundMoney(row.cashOut + movement.amount)
+    } else {
+      row.cashIn = roundMoney(row.cashIn + movement.amount)
+    }
+    netMap.set(movement.currencyCode, row)
+  })
+
   return [...netMap.entries()]
     .map(([currencyCode, totals]) => ({
       currencyCode,
@@ -190,22 +202,39 @@ function buildNetByCurrency(
     .sort((a, b) => a.currencyCode.localeCompare(b.currencyCode, 'es'))
 }
 
-function buildByMethod(payments: CashClosurePaymentLine[]): CashClosureMethodTotal[] {
+function buildByMethod(
+  payments: CashClosurePaymentLine[],
+  cashMovements: CashClosureMovementLine[],
+): CashClosureMethodTotal[] {
   const map = new Map<string, CashClosureMethodTotal>()
+
+  function addRow(methodName: string, currencyCode: string, amount: number, amountInBase: number) {
+    const key = `${methodName}::${currencyCode}`
+    const current = map.get(key) ?? {
+      methodName,
+      currencyCode,
+      amount: 0,
+      amountInBase: 0,
+    }
+    current.amount = roundMoney(current.amount + amount)
+    current.amountInBase = roundMoney(current.amountInBase + amountInBase)
+    map.set(key, current)
+  }
 
   payments
     .filter((payment) => !payment.isCredit)
     .forEach((payment) => {
-      const key = `${payment.methodName}::${payment.currencyCode}`
-      const current = map.get(key) ?? {
-        methodName: payment.methodName,
-        currencyCode: payment.currencyCode,
-        amount: 0,
-        amountInBase: 0,
-      }
-      current.amount = roundMoney(current.amount + payment.amount)
-      current.amountInBase = roundMoney(current.amountInBase + payment.amountInBase)
-      map.set(key, current)
+      addRow(payment.methodName, payment.currencyCode, payment.amount, payment.amountInBase)
+    })
+
+  cashMovements.forEach((movement) => {
+    const sign = movement.type === 'out' ? -1 : 1
+    addRow(
+      movement.methodName || 'Caja',
+      movement.currencyCode,
+      movement.amount * sign,
+      movement.amountInBase * sign,
+    )
     })
 
   return [...map.values()].sort(
@@ -216,13 +245,14 @@ function buildByMethod(payments: CashClosurePaymentLine[]): CashClosureMethodTot
 }
 
 export async function buildCashClosureReport(closureDate: string): Promise<CashClosureReport> {
-  const [sales, debtPaymentsSnapshot, loanPaymentsSnapshot, loansSnapshot, exchanges] =
+  const [sales, debtPaymentsSnapshot, loanPaymentsSnapshot, loansSnapshot, exchanges, cashMovements] =
     await Promise.all([
       listSales(1000),
-      getDocs(collection(db, 'debt_payments')),
-      getDocs(collection(db, 'loan_payments')),
-      getDocs(collection(db, 'loans')),
+      getDocs(tenantCollectionRef('debt_payments')),
+      getDocs(tenantCollectionRef('loan_payments')),
+      getDocs(tenantCollectionRef('loans')),
       listCurrencyExchanges(),
+      listCashMovementsByDate(closureDate),
     ])
 
   const daySales = sales.filter(
@@ -366,6 +396,38 @@ export async function buildCashClosureReport(closureDate: string): Promise<CashC
     exchangeLines.reduce((sum, exchange) => sum + exchange.amountInBase, 0),
   )
 
+  const cashMovementLines: CashClosureMovementLine[] = cashMovements
+    .map((movement) => ({
+      id: movement.id,
+      type: movement.type,
+      description: movement.description,
+      createdAt: movement.createdAt,
+      currencyCode: movement.currencyCode,
+      amount: movement.amount,
+      amountInBase: movement.amountInBase,
+      methodName: movement.methodName,
+      reference: movement.reference,
+      notes: movement.notes,
+      createdByName: movement.createdByName,
+    }))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+  const openingCashInBase = roundMoney(
+    cashMovementLines
+      .filter((movement) => movement.type === 'opening')
+      .reduce((sum, movement) => sum + movement.amountInBase, 0),
+  )
+  const extraCashInBase = roundMoney(
+    cashMovementLines
+      .filter((movement) => movement.type === 'in')
+      .reduce((sum, movement) => sum + movement.amountInBase, 0),
+  )
+  const extraCashOutInBase = roundMoney(
+    cashMovementLines
+      .filter((movement) => movement.type === 'out')
+      .reduce((sum, movement) => sum + movement.amountInBase, 0),
+  )
+
   const cashByCurrency = mergeCurrencyCashTotals([
     ...aggregateCashByCurrency(registerPayments),
     ...debtPayments.map((payment) => ({
@@ -390,19 +452,23 @@ export async function buildCashClosureReport(closureDate: string): Promise<CashC
     loanRepaymentsInBase,
     exchangesCount: exchangeLines.length,
     exchangesVolumeInBase,
+    openingCashInBase,
+    extraCashInBase,
+    extraCashOutInBase,
     totalCashInBase,
     sales: saleLines.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     payments: paymentLines.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    cashMovements: cashMovementLines,
     loansGiven: loanGivenLines,
     exchanges: exchangeLines,
     cashByCurrency,
-    netByCurrency: buildNetByCurrency(cashByCurrency, exchangeLines, loanGivenLines),
-    byMethod: buildByMethod(paymentLines),
+    netByCurrency: buildNetByCurrency(cashByCurrency, exchangeLines, loanGivenLines, cashMovementLines),
+    byMethod: buildByMethod(paymentLines, cashMovementLines),
   }
 }
 
 export async function listCashClosures(): Promise<CashClosure[]> {
-  const snapshot = await getDocs(collection(db, 'cash_closures'))
+  const snapshot = await getDocs(tenantCollectionRef('cash_closures'))
   return snapshot.docs
     .map((item) => mapCashClosure(item.id, item.data()))
     .sort((a, b) => b.closureDate.localeCompare(a.closureDate))
@@ -410,7 +476,7 @@ export async function listCashClosures(): Promise<CashClosure[]> {
 
 export async function getCashClosureByDate(closureDate: string): Promise<CashClosure | null> {
   const snapshot = await getDocs(
-    query(collection(db, 'cash_closures'), where('closureDate', '==', closureDate)),
+    query(tenantCollectionRef('cash_closures'), where('closureDate', '==', closureDate)),
   )
 
   if (snapshot.empty) return null
@@ -429,7 +495,7 @@ export async function createCashClosure(
   }
 
   const report = await buildCashClosureReport(closureDate)
-  const ref = doc(collection(db, 'cash_closures'))
+  const ref = doc(tenantCollectionRef('cash_closures'))
 
   await setDoc(ref, {
     closureDate,
@@ -450,5 +516,5 @@ export async function createCashClosure(
 }
 
 export async function deleteCashClosure(id: string): Promise<void> {
-  await deleteDoc(doc(db, 'cash_closures', id))
+  await deleteDoc(tenantDocumentRef('cash_closures', id))
 }

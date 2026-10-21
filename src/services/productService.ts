@@ -1,5 +1,4 @@
 import {
-  collection,
   deleteDoc,
   doc,
   getDoc,
@@ -13,6 +12,7 @@ import {
 } from 'firebase/firestore'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import { normalizeBarcode } from '../utils/barcode'
 import { roundMoney } from '../utils/formatMoney'
 import type { CreateProductInput, Product, UpdateProductInput } from '../types/product'
@@ -42,6 +42,8 @@ function mapProduct(id: string, data: Record<string, unknown>): Product {
       legacy.bundleCostPrice ?? (data.bundleCostPrice ? Number(data.bundleCostPrice) : undefined),
     bundleSalePrice:
       legacy.bundleSalePrice ?? (data.bundleSalePrice ? Number(data.bundleSalePrice) : undefined),
+    hasSaleLoss: data.hasSaleLoss === true,
+    saleLossPerUnit: Number(data.saleLossPerUnit ?? 0),
     stock: Number(data.stock ?? 0),
     minStock: Number(data.minStock ?? 0),
     active: data.active !== false,
@@ -61,7 +63,7 @@ function mapProduct(id: string, data: Record<string, unknown>): Product {
 }
 
 export async function listProducts(): Promise<Product[]> {
-  const snapshot = await getDocs(collection(db, 'products'))
+  const snapshot = await getDocs(tenantCollectionRef('products'))
   return snapshot.docs
     .map((item) => mapProduct(item.id, item.data()))
     .filter((product) => product.active)
@@ -69,14 +71,14 @@ export async function listProducts(): Promise<Product[]> {
 }
 
 export async function listAllProducts(): Promise<Product[]> {
-  const snapshot = await getDocs(collection(db, 'products'))
+  const snapshot = await getDocs(tenantCollectionRef('products'))
   return snapshot.docs
     .map((item) => mapProduct(item.id, item.data()))
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
 export async function getProductById(id: string): Promise<Product | null> {
-  const snapshot = await getDoc(doc(db, 'products', id))
+  const snapshot = await getDoc(tenantDocumentRef('products', id))
   if (!snapshot.exists()) return null
   return mapProduct(snapshot.id, snapshot.data())
 }
@@ -86,7 +88,7 @@ async function isBarcodeTaken(barcode: string, excludeId?: string) {
   if (!trimmed) return false
 
   const snapshot = await getDocs(
-    query(collection(db, 'products'), where('barcode', '==', trimmed)),
+    query(tenantCollectionRef('products'), where('barcode', '==', trimmed)),
   )
 
   return snapshot.docs.some((item) => item.id !== excludeId)
@@ -122,7 +124,7 @@ export async function createProduct(input: CreateProductInput, userId: string) {
         ? roundMoney(normalized.bundleSalePrice)
         : normalized.bundleSalePrice,
   }
-  const ref = doc(collection(db, 'products'))
+  const ref = doc(tenantCollectionRef('products'))
   await setDoc(ref, {
     name: normalized.name.trim(),
     barcode: normalized.barcode?.trim() || null,
@@ -137,6 +139,8 @@ export async function createProduct(input: CreateProductInput, userId: string) {
     salePrice: prices.salePrice,
     bundleCostPrice: prices.bundleCostPrice,
     bundleSalePrice: prices.bundleSalePrice,
+    hasSaleLoss: normalized.hasSaleLoss === true,
+    saleLossPerUnit: Number(normalized.saleLossPerUnit ?? 0),
     stock: normalized.stock,
     minStock: normalized.minStock,
     active: true,
@@ -179,7 +183,7 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
         : normalized.bundleSalePrice,
   }
 
-  await updateDoc(doc(db, 'products', id), {
+  await updateDoc(tenantDocumentRef('products', id), {
     name: normalized.name.trim(),
     barcode: normalized.barcode?.trim() || null,
     stockCategoryId: normalized.stockCategoryId?.trim() || null,
@@ -193,6 +197,8 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
     salePrice: prices.salePrice,
     bundleCostPrice: prices.bundleCostPrice,
     bundleSalePrice: prices.bundleSalePrice,
+    hasSaleLoss: normalized.hasSaleLoss === true,
+    saleLossPerUnit: Number(normalized.saleLossPerUnit ?? 0),
     stock: normalized.stock,
     minStock: normalized.minStock,
     updatedAt: serverTimestamp(),
@@ -200,14 +206,14 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
 }
 
 export async function setProductActive(id: string, active: boolean) {
-  await updateDoc(doc(db, 'products', id), {
+  await updateDoc(tenantDocumentRef('products', id), {
     active,
     updatedAt: serverTimestamp(),
   })
 }
 
 export async function deleteProduct(id: string) {
-  await deleteDoc(doc(db, 'products', id))
+  await deleteDoc(tenantDocumentRef('products', id))
 }
 
 export async function findProductByBarcode(barcode: string): Promise<Product | null> {
@@ -215,7 +221,7 @@ export async function findProductByBarcode(barcode: string): Promise<Product | n
   if (!trimmed) return null
 
   const snapshot = await getDocs(
-    query(collection(db, 'products'), where('barcode', '==', trimmed)),
+    query(tenantCollectionRef('products'), where('barcode', '==', trimmed)),
   )
 
   if (snapshot.empty) return null
@@ -226,7 +232,7 @@ export async function findProductByBarcode(barcode: string): Promise<Product | n
 }
 
 export async function seedSampleProducts(userId: string) {
-  const snapshot = await getDocs(collection(db, 'products'))
+  const snapshot = await getDocs(tenantCollectionRef('products'))
   if (!snapshot.empty) return
 
   const samples: CreateProductInput[] = [
@@ -239,6 +245,8 @@ export async function seedSampleProducts(userId: string) {
       allowsBundle: false,
       costPrice: 4200,
       salePrice: 5800,
+      hasSaleLoss: false,
+      saleLossPerUnit: 0,
       stock: 50,
       minStock: 5,
     },
@@ -251,6 +259,8 @@ export async function seedSampleProducts(userId: string) {
       allowsBundle: false,
       costPrice: 9800,
       salePrice: 13500,
+      hasSaleLoss: false,
+      saleLossPerUnit: 0,
       stock: 30,
       minStock: 5,
     },
@@ -263,6 +273,8 @@ export async function seedSampleProducts(userId: string) {
       allowsBundle: false,
       costPrice: 3800,
       salePrice: 5200,
+      hasSaleLoss: false,
+      saleLossPerUnit: 0,
       stock: 40,
       minStock: 5,
     },
@@ -275,6 +287,8 @@ export async function seedSampleProducts(userId: string) {
       allowsBundle: false,
       costPrice: 28000,
       salePrice: 36000,
+      hasSaleLoss: false,
+      saleLossPerUnit: 0,
       stock: 25,
       minStock: 5,
     },
@@ -290,6 +304,8 @@ export async function seedSampleProducts(userId: string) {
       salePrice: 5800,
       bundleCostPrice: 100800,
       bundleSalePrice: 139200,
+      hasSaleLoss: false,
+      saleLossPerUnit: 0,
       stock: 120,
       minStock: 24,
     },
@@ -302,6 +318,8 @@ export async function seedSampleProducts(userId: string) {
       allowsBundle: false,
       costPrice: 32000,
       salePrice: 42000,
+      hasSaleLoss: false,
+      saleLossPerUnit: 0,
       stock: 18,
       minStock: 5,
     },
@@ -310,7 +328,7 @@ export async function seedSampleProducts(userId: string) {
   const batch = writeBatch(db)
 
   samples.forEach((product) => {
-    const ref = doc(collection(db, 'products'))
+    const ref = doc(tenantCollectionRef('products'))
     const normalized = normalizeProductInput({ ...product, minStock: product.minStock ?? 5 })
     batch.set(ref, {
       name: normalized.name,

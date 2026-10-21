@@ -21,7 +21,11 @@ export function getExpectedCashInBase(report: CashClosureReport): number {
   if (copRow) return copRow.net
 
   return roundMoney(
-    (report.totalCashInBase ?? 0) - (report.loansGivenInBase ?? 0),
+    (report.totalCashInBase ?? 0) +
+      (report.openingCashInBase ?? 0) +
+      (report.extraCashInBase ?? 0) -
+      (report.extraCashOutInBase ?? 0) -
+      (report.loansGivenInBase ?? 0),
   )
 }
 

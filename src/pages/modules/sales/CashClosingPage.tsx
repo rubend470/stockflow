@@ -109,8 +109,8 @@ export function CashClosingPage() {
           <div>
             <h2>Cierres registrados</h2>
             <p>
-              Genera el cierre por fecha. El total <strong>Debe en caja</strong> descuenta
-              préstamos y cambio de moneda del día.
+              Genera el cierre por fecha. El total <strong>Debe en caja</strong> incluye
+              base inicial, entradas y salidas, además de préstamos y cambio de moneda.
             </p>
           </div>
           <div className="finance-panel-actions">

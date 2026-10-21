@@ -1,6 +1,5 @@
 import {
   Timestamp,
-  collection,
   doc,
   getDoc,
   getDocs,
@@ -13,6 +12,7 @@ import {
 } from 'firebase/firestore'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type { Product } from '../types/product'
 import type {
   CreatePurchaseInvoiceInput,
@@ -210,7 +210,7 @@ function applyStockEntry(
   userId: string,
   userName: string,
 ) {
-  const movementRef = doc(collection(db, 'inventory_movements'))
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
   batch.set(movementRef, {
     productId: product.stockCategoryId ? null : product.id,
     stockCategoryId: product.stockCategoryId ?? null,
@@ -227,12 +227,12 @@ function applyStockEntry(
   })
 
   if (product.stockCategoryId) {
-    batch.update(doc(db, 'stock_categories', product.stockCategoryId), {
+    batch.update(tenantDocumentRef('stock_categories', product.stockCategoryId), {
       stock: increment(line.quantity),
       updatedAt: serverTimestamp(),
     })
   } else {
-    batch.update(doc(db, 'products', product.id), {
+    batch.update(tenantDocumentRef('products', product.id), {
       stock: increment(line.quantity),
       updatedAt: serverTimestamp(),
     })
@@ -251,7 +251,7 @@ function applyCategoryStockEntry(
   userId: string,
   userName: string,
 ) {
-  const movementRef = doc(collection(db, 'inventory_movements'))
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
   batch.set(movementRef, {
     productId: null,
     stockCategoryId: category.id,
@@ -267,7 +267,7 @@ function applyCategoryStockEntry(
     createdByName: userName,
   })
 
-  batch.update(doc(db, 'stock_categories', category.id), {
+  batch.update(tenantDocumentRef('stock_categories', category.id), {
     stock: increment(line.quantity),
     updatedAt: serverTimestamp(),
   })
@@ -285,7 +285,7 @@ function reverseCategoryStockEntry(
   userId: string,
   userName: string,
 ) {
-  const movementRef = doc(collection(db, 'inventory_movements'))
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
   batch.set(movementRef, {
     productId: null,
     stockCategoryId: category.id,
@@ -301,7 +301,7 @@ function reverseCategoryStockEntry(
     createdByName: userName,
   })
 
-  batch.update(doc(db, 'stock_categories', category.id), {
+  batch.update(tenantDocumentRef('stock_categories', category.id), {
     stock: increment(-line.quantity),
     updatedAt: serverTimestamp(),
   })
@@ -319,7 +319,7 @@ function reverseStockEntry(
   userId: string,
   userName: string,
 ) {
-  const movementRef = doc(collection(db, 'inventory_movements'))
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
   batch.set(movementRef, {
     productId: product.stockCategoryId ? null : product.id,
     stockCategoryId: product.stockCategoryId ?? null,
@@ -336,12 +336,12 @@ function reverseStockEntry(
   })
 
   if (product.stockCategoryId) {
-    batch.update(doc(db, 'stock_categories', product.stockCategoryId), {
+    batch.update(tenantDocumentRef('stock_categories', product.stockCategoryId), {
       stock: increment(-line.quantity),
       updatedAt: serverTimestamp(),
     })
   } else {
-    batch.update(doc(db, 'products', product.id), {
+    batch.update(tenantDocumentRef('products', product.id), {
       stock: increment(-line.quantity),
       updatedAt: serverTimestamp(),
     })
@@ -349,7 +349,7 @@ function reverseStockEntry(
 }
 
 async function getNextInvoiceNumber() {
-  const counterRef = doc(db, 'settings', 'purchase_invoices')
+  const counterRef = tenantDocumentRef('settings', 'purchase_invoices')
 
   return runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(counterRef)
@@ -370,7 +370,7 @@ async function getNextInvoiceNumber() {
 }
 
 export async function listPurchaseInvoices(): Promise<PurchaseInvoice[]> {
-  const snapshot = await getDocs(collection(db, 'purchase_invoices'))
+  const snapshot = await getDocs(tenantCollectionRef('purchase_invoices'))
   return snapshot.docs
     .map((item) => mapPurchaseInvoice(item.id, item.data()))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -393,7 +393,7 @@ export function getPurchaseInvoiceDueInBase(invoice: PurchaseInvoice) {
 }
 
 export async function getPurchaseInvoiceById(id: string): Promise<PurchaseInvoice | null> {
-  const snapshot = await getDoc(doc(db, 'purchase_invoices', id))
+  const snapshot = await getDoc(tenantDocumentRef('purchase_invoices', id))
   if (!snapshot.exists()) return null
   return mapPurchaseInvoice(snapshot.id, snapshot.data())
 }
@@ -439,7 +439,7 @@ export async function createAndReceivePurchaseInvoice(
 
   const number = await getNextInvoiceNumber()
   const invoiceDate = input.invoiceDate?.trim() || todayInputValue()
-  const ref = doc(collection(db, 'purchase_invoices'))
+  const ref = doc(tenantCollectionRef('purchase_invoices'))
   const batch = writeBatch(db)
 
   for (const line of lines) {
@@ -593,7 +593,7 @@ export async function updatePurchaseInvoice(
     }
   }
 
-  batch.update(doc(db, 'purchase_invoices', id), {
+  batch.update(tenantDocumentRef('purchase_invoices', id), {
     supplierId: supplier.id,
     supplierName: supplier.name,
     supplierInvoiceNumber: input.supplierInvoiceNumber?.trim() || null,
@@ -638,7 +638,7 @@ export async function registerPurchaseInvoicePayment(id: string, amount: number)
     status = 'partial'
   }
 
-  await updateDoc(doc(db, 'purchase_invoices', id), {
+  await updateDoc(tenantDocumentRef('purchase_invoices', id), {
     amountPaid: nextPaid,
     amountDue,
     status,
@@ -685,7 +685,7 @@ export async function receivePurchaseInvoice(id: string, userId: string, userNam
   const status =
     invoice.amountDue <= 0.01 ? 'paid' : invoice.amountPaid > 0.01 ? 'partial' : 'received'
 
-  batch.update(doc(db, 'purchase_invoices', id), {
+  batch.update(tenantDocumentRef('purchase_invoices', id), {
     status,
     updatedAt: serverTimestamp(),
     receivedAt: serverTimestamp(),
@@ -705,7 +705,7 @@ export async function cancelPurchaseInvoice(id: string) {
     throw new Error('Solo puedes anular facturas que aún no han entrado al inventario.')
   }
 
-  await updateDoc(doc(db, 'purchase_invoices', id), {
+  await updateDoc(tenantDocumentRef('purchase_invoices', id), {
     status: 'cancelled',
     updatedAt: serverTimestamp(),
   })

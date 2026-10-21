@@ -1,6 +1,10 @@
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
+import {
+  getDoc,
+  serverTimestamp,
+  setDoc,
+} from 'firebase/firestore'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
-import { db } from '../lib/firebase'
+import { tenantDocumentRef } from '../lib/tenantFirestore'
 import type { AppSettings, AppSettingsFormInput } from '../types/settings'
 
 const SETTINGS_DOC_ID = 'app'
@@ -26,7 +30,7 @@ function mapSettings(data: Record<string, unknown>): AppSettings {
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
-  const snapshot = await getDoc(doc(db, 'settings', SETTINGS_DOC_ID))
+  const snapshot = await getDoc(tenantDocumentRef('settings', SETTINGS_DOC_ID))
 
   if (!snapshot.exists()) {
     return {
@@ -53,7 +57,7 @@ export async function updateAppSettings(input: AppSettingsFormInput, baseCurrenc
   }
 
   await setDoc(
-    doc(db, 'settings', SETTINGS_DOC_ID),
+    tenantDocumentRef('settings', SETTINGS_DOC_ID),
     {
       businessName: input.businessName.trim(),
       address: input.address.trim(),

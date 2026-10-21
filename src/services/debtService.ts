@@ -1,5 +1,4 @@
 import {
-  collection,
   doc,
   getDoc,
   getDocs,
@@ -9,6 +8,7 @@ import {
 } from 'firebase/firestore'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import { getClientById, updateClientBalance } from './clientService'
 import type {
   ClientDebtAccount,
@@ -63,7 +63,7 @@ async function loadSaleStatesForDebts(debts: Debt[]) {
 
   await Promise.all(
     saleIds.map(async (saleId) => {
-      const snapshot = await getDoc(doc(db, 'sales', saleId))
+      const snapshot = await getDoc(tenantDocumentRef('sales', saleId))
       if (snapshot.exists()) {
         saleStates.set(saleId, snapshot.data())
       }
@@ -98,7 +98,7 @@ function applyDebtPaymentToLinkedSale(
   const newCredit = Number(Math.max(currentCredit - payAmount, 0).toFixed(2))
   const paymentStatus = computeSalePaymentStatus(newCash, newCredit)
 
-  batch.update(doc(db, 'sales', debt.saleId), {
+  batch.update(tenantDocumentRef('sales', debt.saleId), {
     cashPaid: newCash,
     creditPaid: newCredit,
     paymentStatus,
@@ -112,7 +112,7 @@ function applyDebtPaymentToLinkedSale(
     paymentStatus,
   })
 
-  const salePaymentRef = doc(collection(db, 'sales', debt.saleId, 'payments'))
+  const salePaymentRef = doc(tenantCollectionRef('sales', debt.saleId, 'payments'))
   batch.set(salePaymentRef, {
     methodId: DEBT_COLLECTION_METHOD_ID,
     methodName: paymentInput.methodName,
@@ -155,7 +155,7 @@ function mapDebtPayment(id: string, data: Record<string, unknown>): DebtPayment 
 }
 
 export async function listDebts(): Promise<Debt[]> {
-  const snapshot = await getDocs(collection(db, 'debts'))
+  const snapshot = await getDocs(tenantCollectionRef('debts'))
 
   return snapshot.docs
     .map((item) => mapDebt(item.id, item.data()))
@@ -181,7 +181,7 @@ export async function createDebt(input: CreateDebtInput) {
   }
 
   const batch = writeBatch(db)
-  const debtRef = doc(collection(db, 'debts'))
+  const debtRef = doc(tenantCollectionRef('debts'))
 
   batch.set(debtRef, {
     clientId: client.id,
@@ -210,7 +210,7 @@ export async function recordDebtPayment(
     throw new Error('El monto del abono debe ser mayor a cero.')
   }
 
-  const snapshot = await getDocs(collection(db, 'debts'))
+  const snapshot = await getDocs(tenantCollectionRef('debts'))
   const debtDoc = snapshot.docs.find((item) => item.id === input.debtId)
   if (!debtDoc) {
     throw new Error('Deuda no encontrada.')
@@ -228,7 +228,7 @@ export async function recordDebtPayment(
     ? await loadSaleStatesForDebts([debt])
     : new Map<string, Record<string, unknown>>()
 
-  const paymentRef = doc(collection(db, 'debt_payments'))
+  const paymentRef = doc(tenantCollectionRef('debt_payments'))
   batch.set(paymentRef, {
     debtId: debt.id,
     clientId: debt.clientId,
@@ -257,7 +257,7 @@ export async function recordDebtPayment(
     userName,
   )
 
-  batch.update(doc(db, 'debts', debt.id), {
+  batch.update(tenantDocumentRef('debts', debt.id), {
     balance: newBalance,
     status: newBalance <= 0.01 ? 'paid' : 'active',
     updatedAt: serverTimestamp(),
@@ -270,7 +270,7 @@ export async function recordDebtPayment(
 }
 
 export async function listDebtPayments(debtId: string): Promise<DebtPayment[]> {
-  const snapshot = await getDocs(collection(db, 'debt_payments'))
+  const snapshot = await getDocs(tenantCollectionRef('debt_payments'))
 
   return snapshot.docs
     .map((item) => mapDebtPayment(item.id, item.data()))
@@ -279,7 +279,7 @@ export async function listDebtPayments(debtId: string): Promise<DebtPayment[]> {
 }
 
 export async function listDebtPaymentsByClient(clientId: string): Promise<DebtPayment[]> {
-  const snapshot = await getDocs(collection(db, 'debt_payments'))
+  const snapshot = await getDocs(tenantCollectionRef('debt_payments'))
 
   return snapshot.docs
     .map((item) => mapDebtPayment(item.id, item.data()))
@@ -394,7 +394,7 @@ export async function recordClientDebtPayment(
     const payAmount = Number(Math.min(remaining, debt.balance).toFixed(2))
     const newBalance = Number((debt.balance - payAmount).toFixed(2))
 
-    const paymentRef = doc(collection(db, 'debt_payments'))
+    const paymentRef = doc(tenantCollectionRef('debt_payments'))
     batch.set(paymentRef, {
       debtId: debt.id,
       clientId: debt.clientId,
@@ -423,7 +423,7 @@ export async function recordClientDebtPayment(
       userName,
     )
 
-    batch.update(doc(db, 'debts', debt.id), {
+    batch.update(tenantDocumentRef('debts', debt.id), {
       balance: newBalance,
       status: newBalance <= 0.01 ? 'paid' : 'active',
       updatedAt: serverTimestamp(),

@@ -8,7 +8,8 @@ import {
   getExpectedCashInBase,
   resolveClosureSalePaymentStatus,
 } from '../../utils/cashClosure'
-import { formatBaseMoney } from '../../utils/formatMoney'
+import { formatBaseMoney, formatMoney } from '../../utils/formatMoney'
+import { cashMovementTypeLabels } from '../../types/cashMovement'
 
 interface CashClosureDetailProps {
   report: CashClosureReport
@@ -32,6 +33,10 @@ export function CashClosureDetail({
   const loansGivenInBase = report.loansGivenInBase ?? 0
   const exchanges = report.exchanges ?? []
   const exchangesCount = report.exchangesCount ?? exchanges.length
+  const cashMovements = report.cashMovements ?? []
+  const openingCashInBase = report.openingCashInBase ?? 0
+  const extraCashInBase = report.extraCashInBase ?? 0
+  const extraCashOutInBase = report.extraCashOutInBase ?? 0
 
   function formatExchangeMethod(name: string, reference?: string) {
     return reference ? `${name} · Ref. ${reference}` : name
@@ -64,7 +69,7 @@ export function CashClosureDetail({
       <section className="cash-closure-hero">
         <p className="cash-closure-hero-label">Debe haber en caja</p>
         <p className="cash-closure-hero-hint">
-          Cobros del día menos préstamos otorgados y cambio de moneda.
+          Base inicial, cobros y entradas; menos salidas, préstamos y cambio de moneda.
         </p>
         {netByCurrency.length > 0 ? (
           <div className="sales-currency-grid">
@@ -106,6 +111,24 @@ export function CashClosureDetail({
           <span>Cobrado en caja</span>
           <strong className="finance-profit">{formatBaseMoney(report.totalCashInBase)}</strong>
         </article>
+        {openingCashInBase > 0 && (
+          <article>
+            <span>Base inicial</span>
+            <strong className="finance-profit">{formatBaseMoney(openingCashInBase)}</strong>
+          </article>
+        )}
+        {extraCashInBase > 0 && (
+          <article>
+            <span>Entradas extra</span>
+            <strong className="finance-profit">{formatBaseMoney(extraCashInBase)}</strong>
+          </article>
+        )}
+        {extraCashOutInBase > 0 && (
+          <article>
+            <span>Salidas extra</span>
+            <strong className="text-danger">−{formatBaseMoney(extraCashOutInBase)}</strong>
+          </article>
+        )}
         <article>
           <span>A crédito</span>
           <strong>{formatBaseMoney(report.creditSalesInBase)}</strong>
@@ -127,6 +150,57 @@ export function CashClosureDetail({
           <strong className="finance-profit">{formatBaseMoney(expectedCashInBase)}</strong>
         </article>
       </div>
+
+      {cashMovements.length > 0 && (
+        <section className="cash-closure-section">
+          <h4 className="finance-detail-title">Base, entradas y salidas</h4>
+          <p className="finance-detail-hint">
+            Movimientos manuales de caja incluidos en <strong>Debe haber en caja</strong>.
+          </p>
+          <div className="finance-table-wrap">
+            <table className="finance-table">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th>Descripción</th>
+                  <th>Moneda / forma</th>
+                  <th>Monto</th>
+                  <th>Equiv. COP</th>
+                  <th>Usuario</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashMovements.map((movement) => (
+                  <tr key={movement.id}>
+                    <td>{formatClosureDateTime(movement.createdAt)}</td>
+                    <td>{cashMovementTypeLabels[movement.type]}</td>
+                    <td>
+                      <strong>{movement.description}</strong>
+                      {movement.notes && <small className="expense-note">{movement.notes}</small>}
+                    </td>
+                    <td>
+                      <strong>{movement.currencyCode}</strong>
+                      <small className="expense-note">
+                        {movement.methodName || 'Caja'}
+                        {movement.reference ? ` · Ref. ${movement.reference}` : ''}
+                      </small>
+                    </td>
+                    <td>
+                      <strong className={movement.type === 'out' ? 'text-danger' : 'finance-profit'}>
+                        {movement.type === 'out' ? '−' : ''}
+                        {formatMoney(movement.amount, movement.currencyCode)}
+                      </strong>
+                    </td>
+                    <td>{formatBaseMoney(movement.amountInBase)}</td>
+                    <td>{movement.createdByName || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {exchangesCount > 0 && (
         <section className="cash-closure-section">
@@ -192,9 +266,9 @@ export function CashClosureDetail({
 
       {report.byMethod.length > 0 && (
         <section className="cash-closure-section">
-          <h4 className="finance-detail-title">Cobros por forma de pago</h4>
+          <h4 className="finance-detail-title">Caja por forma de pago</h4>
           <p className="finance-detail-hint">
-            Totales que entraron en caja, desglosados por método y moneda.
+            Ventas, base, entradas y salidas desglosadas por método y moneda.
           </p>
           <div className="finance-table-wrap">
             <table className="finance-table">

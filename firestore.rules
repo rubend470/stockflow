@@ -40,13 +40,16 @@ service cloud.firestore {
               'reports',
               'products',
               'categories',
+              'product-types',
+              'offers',
               'add-product',
               'pending-invoices',
               'suppliers',
               'expenses',
               'currencies',
               'payments',
-              'settings'
+              'settings',
+              'keyboard-shortcuts'
             ]
           )
           || (
@@ -74,7 +77,8 @@ service cloud.firestore {
         || hasMenuPermission('client-debts')
         || hasMenuPermission('pending-invoices')
         || hasMenuPermission('suppliers')
-        || hasMenuPermission('categories');
+        || hasMenuPermission('categories')
+        || hasMenuPermission('waste');
     }
 
     function hasAdminPermission() {
@@ -85,6 +89,87 @@ service cloud.firestore {
 
     function validRole(role) {
       return role in ['super_admin', 'admin', 'cashier'];
+    }
+
+    function isBusinessMember(businessId) {
+      return isSignedIn()
+        && userDoc(request.auth.uid).businessIds is list
+        && businessId in userDoc(request.auth.uid).businessIds;
+    }
+
+    function canCreateTenantDocument(collectionId) {
+      return (
+        (collectionId == 'products' && hasMenuPermission('add-product'))
+        || (collectionId == 'stock_categories' && hasMenuPermission('categories'))
+        || (collectionId in ['currencies', 'exchange_rates'] && hasMenuPermission('currencies'))
+        || (collectionId == 'currency_exchange_rates' && (hasMenuPermission('currency-exchange') || hasMenuPermission('currencies')))
+        || (collectionId == 'payment_methods' && hasMenuPermission('payments'))
+        || (collectionId == 'currency_exchanges' && hasMenuPermission('currency-exchange'))
+        || (collectionId == 'expenses' && hasMenuPermission('expenses'))
+        || (collectionId == 'offers' && hasMenuPermission('offers'))
+        || (collectionId == 'product_types' && hasMenuPermission('product-types'))
+        || (collectionId == 'keyboard_shortcuts' && hasMenuPermission('keyboard-shortcuts'))
+        || (collectionId == 'cash_movements' && (hasMenuPermission('cash-movements') || hasMenuPermission('cash-opening') || hasMenuPermission('cash-closing')))
+        || (collectionId == 'inventory_movements' && hasLegacyOperationalAccess())
+        || (collectionId == 'settings' && hasMenuPermission('settings'))
+        || (collectionId == 'clients' && (hasMenuPermission('client-debts') || hasMenuPermission('pos')))
+        || (collectionId == 'suppliers' && (hasMenuPermission('suppliers') || hasMenuPermission('pending-invoices')))
+        || (collectionId == 'cash_sessions' && (hasMenuPermission('pos') || hasMenuPermission('cash-closing')))
+        || (collectionId == 'cash_closures' && hasMenuPermission('cash-closing'))
+        || (collectionId == 'debts' && (hasMenuPermission('client-debts') || hasMenuPermission('pos')))
+        || (collectionId == 'debt_payments' && hasMenuPermission('client-debts'))
+        || (collectionId in ['loans', 'loan_payments'] && hasMenuPermission('client-debts'))
+        || (collectionId == 'purchase_invoices' && (hasMenuPermission('pending-invoices') || hasMenuPermission('suppliers')))
+        || (collectionId == 'sales' && hasMenuPermission('pos'))
+      );
+    }
+
+    function canUpdateTenantDocument(collectionId) {
+      return (
+        (collectionId == 'products' && (hasMenuPermission('add-product') || hasMenuPermission('pending-invoices') || hasMenuPermission('suppliers') || (hasLegacyOperationalAccess() && isStockOnlyUpdate())))
+        || (collectionId == 'stock_categories' && (hasMenuPermission('categories') || hasMenuPermission('pending-invoices') || hasMenuPermission('suppliers') || (hasLegacyOperationalAccess() && isStockOnlyUpdate())))
+        || (collectionId in ['currencies', 'exchange_rates'] && hasMenuPermission('currencies'))
+        || (collectionId == 'currency_exchange_rates' && (hasMenuPermission('currency-exchange') || hasMenuPermission('currencies')))
+        || (collectionId == 'payment_methods' && hasMenuPermission('payments'))
+        || (collectionId == 'currency_exchanges' && (hasMenuPermission('currencies') || hasMenuPermission('payments')))
+        || (collectionId == 'expenses' && hasMenuPermission('expenses'))
+        || (collectionId == 'offers' && hasMenuPermission('offers'))
+        || (collectionId == 'product_types' && hasMenuPermission('product-types'))
+        || (collectionId == 'keyboard_shortcuts' && hasMenuPermission('keyboard-shortcuts'))
+        || (collectionId == 'cash_movements' && (hasMenuPermission('cash-movements') || hasMenuPermission('cash-opening') || hasMenuPermission('cash-closing')))
+        || (collectionId == 'inventory_movements' && hasAdminPermission())
+        || (collectionId == 'settings' && hasMenuPermission('settings'))
+        || (collectionId == 'clients' && (hasMenuPermission('client-debts') || hasMenuPermission('pos')))
+        || (collectionId == 'suppliers' && (hasMenuPermission('suppliers') || hasMenuPermission('pending-invoices')))
+        || (collectionId == 'cash_sessions' && (hasMenuPermission('pos') || hasMenuPermission('cash-closing')))
+        || (collectionId == 'cash_closures' && hasAdminPermission())
+        || (collectionId == 'debts' && hasMenuPermission('client-debts'))
+        || (collectionId in ['debt_payments', 'loan_payments'] && hasAdminPermission())
+        || (collectionId == 'loans' && hasMenuPermission('client-debts'))
+        || (collectionId == 'purchase_invoices' && (hasMenuPermission('pending-invoices') || hasMenuPermission('suppliers')))
+        || (collectionId == 'sales' && (hasMenuPermission('sales-history') || hasMenuPermission('pos')))
+      );
+    }
+
+    function canDeleteTenantDocument(collectionId) {
+      return (
+        (collectionId == 'products' && hasMenuPermission('add-product'))
+        || (collectionId == 'stock_categories' && hasMenuPermission('categories'))
+        || (collectionId in ['currencies', 'exchange_rates'] && hasMenuPermission('currencies'))
+        || (collectionId == 'currency_exchange_rates' && (hasMenuPermission('currency-exchange') || hasMenuPermission('currencies')))
+        || (collectionId == 'payment_methods' && hasMenuPermission('payments'))
+        || (collectionId == 'currency_exchanges' && (hasMenuPermission('currencies') || hasMenuPermission('payments')))
+        || (collectionId == 'expenses' && hasMenuPermission('expenses'))
+        || (collectionId == 'offers' && hasMenuPermission('offers'))
+        || (collectionId == 'product_types' && hasMenuPermission('product-types'))
+        || (collectionId == 'keyboard_shortcuts' && hasMenuPermission('keyboard-shortcuts'))
+        || (collectionId == 'cash_movements' && (hasMenuPermission('cash-movements') || hasMenuPermission('cash-opening') || hasMenuPermission('cash-closing')))
+        || (collectionId == 'inventory_movements' && (hasAdminPermission() || hasMenuPermission('waste')))
+        || (collectionId == 'settings' && hasMenuPermission('settings'))
+        || (collectionId == 'clients' && hasMenuPermission('client-debts'))
+        || (collectionId == 'suppliers' && hasMenuPermission('suppliers'))
+        || (collectionId in ['cash_sessions', 'cash_closures', 'debts', 'debt_payments', 'loans', 'loan_payments', 'purchase_invoices', 'sales'] && hasAdminPermission())
+      );
     }
 
     match /users/{userId} {
@@ -109,6 +194,12 @@ service cloud.firestore {
         || (
           request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['presence', 'updatedAt'])
+        )
+        || (
+          request.auth.uid == userId
+          && request.resource.data.businessIds == resource.data.businessIds
+          && request.resource.data.currentBusinessId in resource.data.businessIds
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentBusinessId', 'updatedAt'])
         );
 
       allow delete: if hasMenuPermission('users');
@@ -167,10 +258,33 @@ service cloud.firestore {
       allow create, update, delete: if hasMenuPermission('expenses');
     }
 
+    match /offers/{offerId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if hasMenuPermission('offers');
+    }
+
+    match /product_types/{typeId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if hasMenuPermission('product-types');
+    }
+
+    match /keyboard_shortcuts/{shortcutId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if hasMenuPermission('keyboard-shortcuts');
+    }
+
+    match /cash_movements/{movementId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if hasMenuPermission('cash-movements')
+        || hasMenuPermission('cash-opening')
+        || hasMenuPermission('cash-closing');
+    }
+
     match /inventory_movements/{movementId} {
       allow read: if isSignedIn();
       allow create: if hasLegacyOperationalAccess();
-      allow update, delete: if hasAdminPermission();
+      allow update: if hasAdminPermission();
+      allow delete: if hasAdminPermission() || hasMenuPermission('waste');
     }
 
     match /settings/{settingId} {
@@ -249,6 +363,32 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create: if hasMenuPermission('pos') || hasMenuPermission('client-debts');
         allow update, delete: if hasAdminPermission();
+      }
+    }
+
+    match /businesses/{businessId} {
+      allow read: if isBusinessMember(businessId) || isSuperAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isBusinessMember(businessId) && hasAdminPermission();
+      allow delete: if false;
+
+      match /{collectionId}/{documentId} {
+        allow read: if isBusinessMember(businessId);
+        allow create: if isBusinessMember(businessId) && canCreateTenantDocument(collectionId);
+        allow update: if isBusinessMember(businessId) && canUpdateTenantDocument(collectionId);
+        allow delete: if isBusinessMember(businessId) && canDeleteTenantDocument(collectionId);
+      }
+
+      match /sales/{saleId}/items/{itemId} {
+        allow read: if isBusinessMember(businessId);
+        allow create: if isBusinessMember(businessId) && hasMenuPermission('pos');
+        allow update, delete: if isBusinessMember(businessId) && hasAdminPermission();
+      }
+
+      match /sales/{saleId}/payments/{paymentId} {
+        allow read: if isBusinessMember(businessId);
+        allow create: if isBusinessMember(businessId) && (hasMenuPermission('pos') || hasMenuPermission('client-debts'));
+        allow update, delete: if isBusinessMember(businessId) && hasAdminPermission();
       }
     }
   }

@@ -1,11 +1,11 @@
 import {
-  collection,
   doc,
   getDocs,
   serverTimestamp,
   writeBatch,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type {
   CreateLoanInput,
   CreateLoanPaymentInput,
@@ -62,7 +62,7 @@ function mapLoanPayment(id: string, data: Record<string, unknown>): LoanPayment 
 }
 
 export async function listLoans(): Promise<Loan[]> {
-  const snapshot = await getDocs(collection(db, 'loans'))
+  const snapshot = await getDocs(tenantCollectionRef('loans'))
   return snapshot.docs
     .map((item) => mapLoan(item.id, item.data()))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -83,7 +83,7 @@ export async function createLoan(input: CreateLoanInput, userId: string, userNam
   }
 
   const batch = writeBatch(db)
-  const loanRef = doc(collection(db, 'loans'))
+  const loanRef = doc(tenantCollectionRef('loans'))
 
   batch.set(loanRef, {
     borrowerName: name,
@@ -141,7 +141,7 @@ export async function recordBorrowerLoanPayment(
     const newBalanceInBase = roundMoney(loan.balanceInBase - payInBase)
     const newBalance = roundMoney(newBalanceInBase * ratio)
 
-    const paymentRef = doc(collection(db, 'loan_payments'))
+    const paymentRef = doc(tenantCollectionRef('loan_payments'))
     batch.set(paymentRef, {
       loanId: loan.id,
       borrowerPhone: loan.borrowerPhone,
@@ -155,7 +155,7 @@ export async function recordBorrowerLoanPayment(
       createdByName: userName,
     })
 
-    batch.update(doc(db, 'loans', loan.id), {
+    batch.update(tenantDocumentRef('loans', loan.id), {
       balance: newBalance,
       balanceInBase: newBalanceInBase,
       status: newBalanceInBase <= 0.01 ? 'paid' : 'active',
@@ -177,7 +177,7 @@ export async function recordLoanPayment(
     throw new Error('El monto del abono debe ser mayor a cero.')
   }
 
-  const snapshot = await getDocs(collection(db, 'loans'))
+  const snapshot = await getDocs(tenantCollectionRef('loans'))
   const loanDoc = snapshot.docs.find((item) => item.id === input.loanId)
   if (!loanDoc) throw new Error('Préstamo no encontrado.')
 
@@ -191,7 +191,7 @@ export async function recordLoanPayment(
   const newBalance = roundMoney(newBalanceInBase * ratio)
 
   const batch = writeBatch(db)
-  const paymentRef = doc(collection(db, 'loan_payments'))
+  const paymentRef = doc(tenantCollectionRef('loan_payments'))
 
   batch.set(paymentRef, {
     loanId: loan.id,
@@ -206,7 +206,7 @@ export async function recordLoanPayment(
     createdByName: userName,
   })
 
-  batch.update(doc(db, 'loans', loan.id), {
+  batch.update(tenantDocumentRef('loans', loan.id), {
     balance: newBalance,
     balanceInBase: newBalanceInBase,
     status: newBalanceInBase <= 0.01 ? 'paid' : 'active',
@@ -218,7 +218,7 @@ export async function recordLoanPayment(
 }
 
 export async function listLoanPayments(loanId: string): Promise<LoanPayment[]> {
-  const snapshot = await getDocs(collection(db, 'loan_payments'))
+  const snapshot = await getDocs(tenantCollectionRef('loan_payments'))
   return snapshot.docs
     .map((item) => mapLoanPayment(item.id, item.data()))
     .filter((payment) => payment.loanId === loanId)
@@ -227,7 +227,7 @@ export async function listLoanPayments(loanId: string): Promise<LoanPayment[]> {
 
 export async function listLoanPaymentsByBorrower(phone: string): Promise<LoanPayment[]> {
   const key = borrowerKey('', phone)
-  const snapshot = await getDocs(collection(db, 'loan_payments'))
+  const snapshot = await getDocs(tenantCollectionRef('loan_payments'))
 
   return snapshot.docs
     .map((item) => mapLoanPayment(item.id, item.data()))

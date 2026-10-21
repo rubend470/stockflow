@@ -57,6 +57,8 @@ function mapUserDoc(uid: string, data: Record<string, unknown>): AppUser {
     role: (data.role as UserRole) ?? 'cashier',
     active: data.active !== false,
     menuPermissions: mapMenuPermissions(data),
+    businessIds: Array.isArray(data.businessIds) ? data.businessIds.map(String) : undefined,
+    currentBusinessId: data.currentBusinessId ? String(data.currentBusinessId) : undefined,
     presence: mapPresence(data),
     createdAt:
       typeof createdAt === 'object' && createdAt?.toDate

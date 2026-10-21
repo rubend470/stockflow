@@ -12,6 +12,16 @@ declare module 'qz-tray' {
   }
 
   const qz: {
+    security: {
+      setCertificatePromise: (
+        promiseHandler: () => Promise<string>,
+        options?: { rejectOnFailure?: boolean },
+      ) => void
+      setSignaturePromise: (
+        promiseFactory: (dataToSign: string) => Promise<string>,
+      ) => void
+      setSignatureAlgorithm: (algorithm: 'SHA1' | 'SHA256' | 'SHA512') => void
+    }
     websocket: {
       connect: () => Promise<void>
       disconnect: () => Promise<void>

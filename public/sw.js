@@ -1,4 +1,4 @@
-const CACHE_NAME = 'stockflow-shell-v1'
+const CACHE_NAME = 'stockflow-shell-v2'
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -49,16 +49,14 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetch(request).then((response) => {
+    fetch(request)
+      .then((response) => {
         if (response.ok) {
           const copy = response.clone()
           caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
         }
         return response
       })
-
-      return cached || networkFetch
-    }),
+      .catch(() => caches.match(request)),
   )
 })

@@ -1,5 +1,4 @@
 import {
-  collection,
   deleteDoc,
   doc,
   getDoc,
@@ -8,7 +7,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type { Supplier, SupplierFormInput } from '../types/supplier'
 
 function mapSupplier(id: string, data: Record<string, unknown>): Supplier {
@@ -39,7 +38,7 @@ function mapSupplier(id: string, data: Record<string, unknown>): Supplier {
 }
 
 export async function listSuppliers(): Promise<Supplier[]> {
-  const snapshot = await getDocs(collection(db, 'suppliers'))
+  const snapshot = await getDocs(tenantCollectionRef('suppliers'))
   return snapshot.docs
     .map((item) => mapSupplier(item.id, item.data()))
     .filter((supplier) => supplier.active)
@@ -47,14 +46,14 @@ export async function listSuppliers(): Promise<Supplier[]> {
 }
 
 export async function listAllSuppliers(): Promise<Supplier[]> {
-  const snapshot = await getDocs(collection(db, 'suppliers'))
+  const snapshot = await getDocs(tenantCollectionRef('suppliers'))
   return snapshot.docs
     .map((item) => mapSupplier(item.id, item.data()))
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
 export async function getSupplierById(id: string): Promise<Supplier | null> {
-  const snapshot = await getDoc(doc(db, 'suppliers', id))
+  const snapshot = await getDoc(tenantDocumentRef('suppliers', id))
   if (!snapshot.exists()) return null
   return mapSupplier(snapshot.id, snapshot.data())
 }
@@ -72,7 +71,7 @@ export async function createSupplier(input: SupplierFormInput) {
     throw new Error('El nombre del proveedor es obligatorio.')
   }
 
-  const ref = doc(collection(db, 'suppliers'))
+  const ref = doc(tenantCollectionRef('suppliers'))
   await setDoc(ref, {
     name: input.name.trim(),
     phone: input.phone.trim() || null,
@@ -92,7 +91,7 @@ export async function updateSupplier(id: string, input: SupplierFormInput) {
     throw new Error('El nombre del proveedor es obligatorio.')
   }
 
-  await updateDoc(doc(db, 'suppliers', id), {
+  await updateDoc(tenantDocumentRef('suppliers', id), {
     name: input.name.trim(),
     phone: input.phone.trim() || null,
     email: input.email.trim() || null,
@@ -104,7 +103,7 @@ export async function updateSupplier(id: string, input: SupplierFormInput) {
 }
 
 export async function deleteSupplier(id: string) {
-  await deleteDoc(doc(db, 'suppliers', id))
+  await deleteDoc(tenantDocumentRef('suppliers', id))
 }
 
 export async function findOrCreateSupplierByName(

@@ -1,8 +1,10 @@
 import type { Client } from '../types/client'
 import type { Currency, ExchangeRate, PaymentMethod } from '../types/finance'
 import type { Product } from '../types/product'
+import type { SalesOffer } from '../types/offer'
 import type { CreateSaleInput, SaleResult } from '../types/sale'
 import type { StockCategory } from '../types/stockCategory'
+import { getActiveBusinessId } from '../lib/tenantScope'
 
 const POS_CACHE_VERSION = 1
 const POS_QUEUE_VERSION = 1
@@ -16,10 +18,12 @@ export interface PosOfflineCache {
   paymentMethods: PaymentMethod[]
   exchangeRates: ExchangeRate[]
   clients: Client[]
+  offers?: SalesOffer[]
 }
 
 export interface OfflineQueuedSale {
   id: string
+  businessId?: string
   createdAt: string
   updatedAt: string
   status: 'pending' | 'syncing' | 'failed'
@@ -33,12 +37,16 @@ interface OfflineQueuePayload {
   sales: OfflineQueuedSale[]
 }
 
+function storageOwnerKey(userId: string) {
+  return `${userId}:${getActiveBusinessId() ?? 'legacy'}`
+}
+
 function posCacheKey(userId: string) {
-  return `stockflow:pos-cache:v${POS_CACHE_VERSION}:${userId}`
+  return `stockflow:pos-cache:v${POS_CACHE_VERSION}:${storageOwnerKey(userId)}`
 }
 
 function posQueueKey(userId: string) {
-  return `stockflow:offline-sales:v${POS_QUEUE_VERSION}:${userId}`
+  return `stockflow:offline-sales:v${POS_QUEUE_VERSION}:${storageOwnerKey(userId)}`
 }
 
 function hasStorage() {
@@ -132,6 +140,7 @@ export function enqueueOfflineSale(userId: string, input: CreateSaleInput) {
   const id = createOfflineSaleId()
   const queuedSale: OfflineQueuedSale = {
     id,
+    businessId: getActiveBusinessId(),
     createdAt: now,
     updatedAt: now,
     status: 'pending',

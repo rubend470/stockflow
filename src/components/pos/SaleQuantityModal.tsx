@@ -1,11 +1,13 @@
 import type { Product, SaleMode } from '../../types/product'
 import { ModalCloseButton } from '../ui/ModalFrame'
+import { MoneyInput } from '../ui/MoneyInput'
 import { MoneyText } from '../ui/MoneyText'
 import { formatBaseMoney, formatQuantity, parseMoneyInput } from '../../utils/formatMoney'
 import {
   getDefaultQuantity,
   getQuantityStep,
   getUnitsPerBundle,
+  productAllowsAmountEntry,
   productAllowsBundle,
 } from '../../utils/productUnits'
 
@@ -16,13 +18,16 @@ interface SaleQuantityModalProps {
   entryMode: 'quantity' | 'amount'
   quantity: string
   amount: string
+  unitPrice: string
   error?: string
   onSaleModeChange: (mode: SaleMode) => void
   onEntryModeChange: (mode: 'quantity' | 'amount') => void
   onQuantityChange: (value: string) => void
   onAmountChange: (value: string) => void
+  onUnitPriceChange: (value: string) => void
   onConfirm: () => void
   onClose: () => void
+  confirmLabel?: string
 }
 
 export function SaleQuantityModal({
@@ -32,27 +37,34 @@ export function SaleQuantityModal({
   entryMode,
   quantity,
   amount,
+  unitPrice,
   error,
   onSaleModeChange,
   onEntryModeChange,
   onQuantityChange,
   onAmountChange,
+  onUnitPriceChange,
   onConfirm,
   onClose,
+  confirmLabel = 'Agregar al carrito',
 }: SaleQuantityModalProps) {
   if (!open) return null
 
   const allowsBundle = productAllowsBundle(product)
   const isBundle = saleMode === 'bundle'
-  const unitPrice = isBundle ? product.bundleSalePrice ?? 0 : product.salePrice
-  const priceLabel = isBundle ? 'al mayor' : product.unitLabel
+  const baseUnitPrice = isBundle ? product.bundleSalePrice ?? 0 : product.salePrice
+  const editableUnitPrice = parseMoneyInput(unitPrice)
+  const priceLabel = isBundle ? `${product.unitLabel} al mayor` : product.unitLabel
   const quantityLabel = isBundle ? 'al mayor' : product.unitLabel
   const step = getQuantityStep(product.soldBy, saleMode)
   const min = isBundle ? 1 : product.soldBy === 'weight' ? 0.001 : 1
-  const allowsAmountEntry = !isBundle && (product.soldBy === 'weight' || product.type === 'charcuteria')
+  const allowsAmountEntry = !isBundle && productAllowsAmountEntry(product)
   const enteredAmount = parseMoneyInput(amount)
   const calculatedQuantity =
-    enteredAmount > 0 && unitPrice > 0 ? Number((enteredAmount / unitPrice).toFixed(3)) : 0
+    enteredAmount > 0 && editableUnitPrice > 0
+      ? Number((enteredAmount / editableUnitPrice).toFixed(3))
+      : 0
+  const priceWasChanged = editableUnitPrice > 0 && editableUnitPrice !== baseUnitPrice
 
   function handleModeChange(mode: SaleMode) {
     onSaleModeChange(mode)
@@ -87,8 +99,30 @@ export function SaleQuantityModal({
         )}
 
         <p className="pos-modal-price">
-          Precio: <MoneyText amount={unitPrice} /> / {priceLabel}
+          Precio base: <MoneyText amount={baseUnitPrice} /> / {priceLabel}
         </p>
+
+        <label className="pos-field pos-field-full">
+          <span>Precio por {priceLabel}</span>
+          <MoneyInput
+            value={unitPrice}
+            min="0"
+            showCurrencyPrefix
+            onChange={onUnitPriceChange}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                onConfirm()
+              }
+            }}
+          />
+        </label>
+
+        {priceWasChanged && (
+          <p className="pos-modal-hint">
+            Esta línea se agregará con precio manual y no aplicará promociones automáticas.
+          </p>
+        )}
 
         {allowsAmountEntry && (
           <div className="pos-sale-mode-toggle pos-weight-entry-toggle">
@@ -167,7 +201,7 @@ export function SaleQuantityModal({
             Cancelar
           </button>
           <button type="button" className="pos-btn pos-btn-primary" onClick={onConfirm}>
-            Agregar al carrito
+            {confirmLabel}
           </button>
         </div>
       </div>

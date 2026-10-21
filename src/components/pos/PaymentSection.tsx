@@ -14,6 +14,9 @@ interface PaymentSectionProps {
   paymentEquivalentBase?: number | null
   selectedMethodId: string
   paymentAmount: string
+  cashReceivedAmount: string
+  cashChangeAmount?: number | null
+  showCashReceived?: boolean
   paymentReference: string
   payments: SalePaymentInput[]
   totalDue: number
@@ -36,6 +39,7 @@ interface PaymentSectionProps {
   onCurrencyChange: (code: string) => void
   onMethodChange: (id: string) => void
   onAmountChange: (value: string) => void
+  onCashReceivedChange: (value: string) => void
   onReferenceChange: (value: string) => void
   onUseTotalAmount: () => void
   onAddPayment: () => void
@@ -55,6 +59,9 @@ export function PaymentSection({
   paymentEquivalentBase,
   selectedMethodId,
   paymentAmount,
+  cashReceivedAmount,
+  cashChangeAmount,
+  showCashReceived = false,
   paymentReference,
   payments,
   totalDue,
@@ -77,6 +84,7 @@ export function PaymentSection({
   onCurrencyChange,
   onMethodChange,
   onAmountChange,
+  onCashReceivedChange,
   onReferenceChange,
   onUseTotalAmount,
   onAddPayment,
@@ -86,13 +94,13 @@ export function PaymentSection({
   canConfirm,
   error,
 }: PaymentSectionProps) {
-  const selectedMethod = paymentMethods.find((method) => method.id === selectedMethodId)
   const selectedCurrency = currencies.find((currency) => currency.code === selectedCurrencyCode)
   const availableMethods = paymentMethods.filter(
     (method) =>
       method.allowedCurrencies.length === 0 ||
       method.allowedCurrencies.includes(selectedCurrencyCode),
   )
+  const selectedMethod = availableMethods.find((method) => method.id === selectedMethodId)
 
   const creditPayments = payments.filter((payment) => payment.isCredit)
   const cashPaid = payments
@@ -150,7 +158,10 @@ export function PaymentSection({
 
         <label className="pos-field">
           <span>Forma de pago</span>
-          <select value={selectedMethodId} onChange={(event) => onMethodChange(event.target.value)}>
+          <select
+            value={selectedMethod?.id ?? ''}
+            onChange={(event) => onMethodChange(event.target.value)}
+          >
             {availableMethods.map((method) => (
               <option key={method.id} value={method.id}>
                 {method.name}
@@ -205,6 +216,30 @@ export function PaymentSection({
             </small>
           )}
         </label>
+
+        {showCashReceived && (
+          <label className="pos-field pos-field-full">
+            <span>Recibido en efectivo ({selectedCurrency?.symbol ?? selectedCurrencyCode})</span>
+            <MoneyInput
+              min="0"
+              value={cashReceivedAmount}
+              onChange={onCashReceivedChange}
+            />
+            {cashReceivedAmount.trim() && cashChangeAmount !== null && cashChangeAmount !== undefined && (
+              <small className={cashChangeAmount >= 0 ? 'pos-change-due' : 'pos-change-missing'}>
+                {cashChangeAmount >= 0 ? (
+                  <>
+                    Vuelto: <strong><MoneyText amount={cashChangeAmount} currencyCode={selectedCurrencyCode} /></strong>
+                  </>
+                ) : (
+                  <>
+                    Falta: <strong><MoneyText amount={Math.abs(cashChangeAmount)} currencyCode={selectedCurrencyCode} /></strong>
+                  </>
+                )}
+              </small>
+            )}
+          </label>
+        )}
 
         {creditEnabled && (
           <div className="pos-credit-inline">

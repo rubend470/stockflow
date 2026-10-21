@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import type { ProductFormInput } from '../../types/product'
+import { defaultProductTypes, type ProductFormInput, type ProductTypeOption } from '../../types/product'
 import type { StockCategory } from '../../types/stockCategory'
 import { isLikelyBarcode, normalizeBarcode } from '../../utils/barcode'
 import {
@@ -12,10 +12,12 @@ import {
 import { DEFAULT_BASE_CURRENCY_CODE } from '../../constants/currency'
 import { MoneyInput } from '../ui/MoneyInput'
 import { formatBaseMoney, parseMoneyInput } from '../../utils/formatMoney'
+import { BarcodeScannerButton } from '../ui/BarcodeScannerButton'
 
 interface ProductFormProps {
   initialValues: ProductFormInput
   stockCategories?: StockCategory[]
+  productTypes?: ProductTypeOption[]
   canViewCost: boolean
   submitting: boolean
   submitLabel: string
@@ -29,6 +31,7 @@ interface ProductFormProps {
 export function ProductForm({
   initialValues,
   stockCategories = [],
+  productTypes = defaultProductTypes,
   canViewCost,
   submitting,
   submitLabel,
@@ -43,6 +46,8 @@ export function ProductForm({
   const [stockBundles, setStockBundles] = useState(() =>
     stockBundlesFromUnits(initialValues.stock, initialValues.unitsPerBundle),
   )
+  const typeSource = productTypes.length > 0 ? productTypes : defaultProductTypes
+  const typeOptions = typeSource.filter((type) => type.active || type.id === values.type)
   const usesCategoryStock = Boolean(values.stockCategoryId)
   const effectiveStock = values.allowsBundle
     ? resolveProductStock(values.stock, stockInputMode, stockBundles, values.unitsPerBundle)
@@ -90,6 +95,8 @@ export function ProductForm({
       ...current,
       soldBy,
       unitLabel: soldBy === 'weight' ? 'kg' : 'und',
+      hasSaleLoss: soldBy === 'weight' ? current.hasSaleLoss : false,
+      saleLossPerUnit: soldBy === 'weight' ? current.saleLossPerUnit : 0,
     }))
   }
 
@@ -127,20 +134,28 @@ export function ProductForm({
 
           <label className="inventory-field">
             <span>Código de barras</span>
-            <input
-              type="text"
-              value={values.barcode ?? ''}
-              inputMode="numeric"
-              autoComplete="off"
-              onChange={(event) => handleBarcodeChange(event.target.value)}
-              onBlur={commitBarcode}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter') return
-                event.preventDefault()
-                commitBarcode()
-              }}
-              placeholder="Escanea o escribe el código"
-            />
+            <div className="barcode-input-row">
+              <input
+                type="text"
+                value={values.barcode ?? ''}
+                inputMode="numeric"
+                autoComplete="off"
+                onChange={(event) => handleBarcodeChange(event.target.value)}
+                onBlur={commitBarcode}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  commitBarcode()
+                }}
+                placeholder="Escanea o escribe el código"
+              />
+              <BarcodeScannerButton
+                label="Cámara"
+                onDetected={(barcode) =>
+                  setValues((current) => ({ ...current, barcode: normalizeBarcode(barcode) }))
+                }
+              />
+            </div>
             <small className="inventory-hint">
               El lector funciona como teclado. Escanea aquí y el código queda listo para vender por
               POS.
@@ -159,8 +174,11 @@ export function ProductForm({
                 }))
               }
             >
-              <option value="abasto">Abasto</option>
-              <option value="charcuteria">Charcutería</option>
+              {typeOptions.map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.name}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -173,7 +191,6 @@ export function ProductForm({
                 setValues((current) => ({
                   ...current,
                   stockCategoryId,
-                  type: stockCategoryId ? 'charcuteria' : current.type,
                   soldBy: stockCategoryId ? 'weight' : current.soldBy,
                   unitLabel: stockCategoryId ? 'kg' : current.unitLabel,
                   allowsBundle: stockCategoryId ? false : current.allowsBundle,
@@ -333,7 +350,7 @@ export function ProductForm({
 
             {canViewCost && (
               <label className="inventory-field">
-                <span>Costo al mayor</span>
+                <span>Costo al mayor por {unitLabel}</span>
                 <MoneyInput
                   showCurrencyPrefix
                   value={values.bundleCostPrice ?? 0}
@@ -349,7 +366,7 @@ export function ProductForm({
             )}
 
             <label className="inventory-field">
-              <span>Precio de venta al mayor</span>
+              <span>Precio de venta al mayor por {unitLabel}</span>
               <MoneyInput
                 showCurrencyPrefix
                 value={values.bundleSalePrice ?? 0}
@@ -372,12 +389,65 @@ export function ProductForm({
 
           {canViewCost && bundleMargin !== null && (
             <div className="inventory-margin">
-              Margen al mayor: <strong>{bundleMargin.toFixed(1)}%</strong> · Ganancia al mayor{' '}
+              Margen al mayor: <strong>{bundleMargin.toFixed(1)}%</strong> · Ganancia por {unitLabel}{' '}
               <strong>
                 {formatBaseMoney(
                   (values.bundleSalePrice ?? 0) - (values.bundleCostPrice ?? 0),
                 )}
+              </strong>{' '}
+              · Por mayor <strong>
+                {formatBaseMoney(
+                  ((values.bundleSalePrice ?? 0) - (values.bundleCostPrice ?? 0)) *
+                    (values.unitsPerBundle ?? 1),
+                )}
               </strong>
+            </div>
+          )}
+        </div>
+      )}
+
+      {values.soldBy === 'weight' && (
+        <div className="inventory-form-section">
+          <h3>Pérdida al vender</h3>
+          <label className="inventory-field inventory-field-full">
+            <span className="inventory-checkbox-label">
+              <input
+                type="checkbox"
+                checked={values.hasSaleLoss}
+                onChange={(event) => {
+                  const checked = event.target.checked
+                  setValues((current) => ({
+                    ...current,
+                    hasSaleLoss: checked,
+                    saleLossPerUnit: checked ? current.saleLossPerUnit || 0.2 : 0,
+                  }))
+                }}
+              />
+              Este producto tiene pérdida al prepararlo
+            </span>
+          </label>
+
+          {values.hasSaleLoss && (
+            <div className="inventory-form-grid">
+              <label className="inventory-field">
+                <span>Pérdida por {unitLabel}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={values.saleLossPerUnit}
+                  onChange={(event) =>
+                    setValues((current) => ({
+                      ...current,
+                      saleLossPerUnit: Number(event.target.value),
+                    }))
+                  }
+                />
+              </label>
+              <div className="inventory-margin">
+                Si vendes 1 {unitLabel}, el inventario descuenta{' '}
+                <strong>{Number((1 + values.saleLossPerUnit).toFixed(3))} {unitLabel}</strong>.
+              </div>
             </div>
           )}
         </div>

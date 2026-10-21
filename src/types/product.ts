@@ -1,4 +1,4 @@
-export type ProductType = 'abasto' | 'charcuteria'
+export type ProductType = string
 export type SoldBy = 'unit' | 'weight'
 export type SaleMode = 'retail' | 'bundle'
 
@@ -19,6 +19,8 @@ export interface Product {
   salePrice: number
   bundleCostPrice?: number
   bundleSalePrice?: number
+  hasSaleLoss?: boolean
+  saleLossPerUnit?: number
   stock: number
   minStock: number
   active: boolean
@@ -39,8 +41,23 @@ export interface ProductFormInput {
   salePrice: number
   bundleCostPrice?: number
   bundleSalePrice?: number
+  hasSaleLoss: boolean
+  saleLossPerUnit: number
   stock: number
   minStock: number
+}
+
+export interface ProductTypeOption {
+  id: string
+  name: string
+  active: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ProductTypeFormInput {
+  name: string
+  active: boolean
 }
 
 export interface CreateProductInput extends ProductFormInput {}
@@ -60,8 +77,20 @@ export const emptyProductForm = (): ProductFormInput => ({
   salePrice: 0,
   bundleCostPrice: 0,
   bundleSalePrice: 0,
+  hasSaleLoss: false,
+  saleLossPerUnit: 0,
   stock: 0,
   minStock: 5,
+})
+
+export const defaultProductTypes: ProductTypeOption[] = [
+  { id: 'abasto', name: 'Abasto', active: true },
+  { id: 'charcuteria', name: 'Charcutería', active: true },
+]
+
+export const emptyProductTypeForm = (): ProductTypeFormInput => ({
+  name: '',
+  active: true,
 })
 
 export function productFormFromProduct(product: Product): ProductFormInput {
@@ -78,6 +107,8 @@ export function productFormFromProduct(product: Product): ProductFormInput {
     salePrice: product.salePrice,
     bundleCostPrice: product.bundleCostPrice ?? 0,
     bundleSalePrice: product.bundleSalePrice ?? 0,
+    hasSaleLoss: product.hasSaleLoss === true,
+    saleLossPerUnit: product.saleLossPerUnit ?? 0,
     stock: product.stock,
     minStock: product.minStock,
   }

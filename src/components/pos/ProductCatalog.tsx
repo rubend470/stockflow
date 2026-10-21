@@ -39,9 +39,7 @@ export function ProductCatalog({ products, query, onSelect }: ProductCatalogProp
           onClick={() => onSelect(product)}
           disabled={product.stock <= 0}
         >
-          <span className={`pos-product-type ${product.type}`}>
-            {product.type === 'charcuteria' ? 'Charcutería' : 'Abasto'}
-          </span>
+          <span className={`pos-product-type ${product.type}`}>{product.type}</span>
           <strong>{product.name}</strong>
           <span className="pos-product-price">{formatProductPrices(product)}</span>
           <span className="pos-product-meta">

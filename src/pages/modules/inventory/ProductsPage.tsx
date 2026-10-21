@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppLayout } from '../../../components/layout/AppLayout'
 import { PanelRefreshOverlay } from '../../../components/ui/PanelRefreshOverlay'
+import { BarcodeScannerButton } from '../../../components/ui/BarcodeScannerButton'
 import { TableAction, TableActions } from '../../../components/ui/TableActions'
 import { TablePagination } from '../../../components/ui/TablePagination'
 import { usePagination } from '../../../hooks/usePagination'
@@ -15,6 +16,7 @@ import {
   setProductActive,
   updateProduct,
 } from '../../../services/productService'
+import { listProductTypes } from '../../../services/productTypeService'
 import { listStockCategories } from '../../../services/stockCategoryService'
 import type { StockCategory } from '../../../types/stockCategory'
 import { enrichProductsWithCategoryStock } from '../../../utils/stockCategory'
@@ -25,21 +27,18 @@ import {
   productFormFromProduct,
   type Product,
   type ProductFormInput,
+  type ProductTypeOption,
 } from '../../../types/product'
 import { formatBaseMoney } from '../../../utils/formatMoney'
 import { formatProductPrices, formatStockSummary, getProductSaleSummary } from '../../../utils/productUnits'
 import { userCanViewCost, userHasMenuPermission } from '../../../utils/menuPermissions'
-
-const typeLabels = {
-  abasto: 'Abasto',
-  charcuteria: 'Charcutería',
-}
 
 export function ProductsPage() {
   const { user } = useAuth()
   const confirm = useConfirm()
   const [products, setProducts] = useState<Product[]>([])
   const [stockCategories, setStockCategories] = useState<StockCategory[]>([])
+  const [productTypes, setProductTypes] = useState<ProductTypeOption[]>([])
   const { loading, refreshing, run } = usePanelLoader()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -62,8 +61,13 @@ export function ProductsPage() {
 
     try {
       await run(async () => {
-        const [data, categories] = await Promise.all([listAllProducts(), listStockCategories()])
+        const [data, categories, types] = await Promise.all([
+          listAllProducts(),
+          listStockCategories(),
+          listProductTypes(),
+        ])
         setStockCategories(categories)
+        setProductTypes(types)
         setProducts(enrichProductsWithCategoryStock(data, categories))
       })
     } catch {
@@ -86,7 +90,26 @@ export function ProductsPage() {
     })
   }, [products, search, typeFilter])
 
+  const inventoryInvestment = useMemo(() => {
+    const productInvestment = products
+      .filter((product) => product.active !== false && !product.stockCategoryId)
+      .reduce((sum, product) => sum + product.stock * product.costPrice, 0)
+    const categoryInvestment = stockCategories
+      .filter((category) => category.active !== false)
+      .reduce((sum, category) => sum + category.stock * category.costPrice, 0)
+
+    return {
+      productInvestment,
+      categoryInvestment,
+      total: productInvestment + categoryInvestment,
+    }
+  }, [products, stockCategories])
+
   const pagination = usePagination(filteredProducts, 12)
+  const typeLabelMap = useMemo(
+    () => new Map(productTypes.map((type) => [type.id, type.name])),
+    [productTypes],
+  )
 
   function openEditModal(product: Product) {
     setEditingProduct(product)
@@ -178,21 +201,44 @@ export function ProductsPage() {
         </div>
 
         <div className="inventory-filters">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por nombre o código..."
-          />
+          <div className="barcode-input-row inventory-search-scan-row">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar por nombre o código..."
+            />
+            <BarcodeScannerButton label="Cámara" onDetected={setSearch} />
+          </div>
           <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}>
             <option value="all">Todos los tipos</option>
-            <option value="abasto">Abasto</option>
-            <option value="charcuteria">Charcutería</option>
+            {productTypes.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.name}
+              </option>
+            ))}
           </select>
         </div>
 
         {error && <div className="alert alert-error">{error}</div>}
         {message && <div className="alert alert-success">{message}</div>}
+
+        {canViewCost && (
+          <div className="inventory-stats-grid">
+            <article>
+              <span>Inversión total inventario</span>
+              <strong>{formatBaseMoney(inventoryInvestment.total)}</strong>
+            </article>
+            <article>
+              <span>Productos con stock propio</span>
+              <strong>{formatBaseMoney(inventoryInvestment.productInvestment)}</strong>
+            </article>
+            <article>
+              <span>Categorías compartidas</span>
+              <strong>{formatBaseMoney(inventoryInvestment.categoryInvestment)}</strong>
+            </article>
+          </div>
+        )}
 
         {loading ? (
           <div className="inventory-empty">Cargando productos...</div>
@@ -235,9 +281,14 @@ export function ProductsPage() {
                       <td>
                         <strong>{product.name}</strong>
                         {!product.active && <span className="inventory-badge">Inactivo</span>}
+                        {product.hasSaleLoss && product.saleLossPerUnit ? (
+                          <span className="inventory-subtext">
+                            Pérdida: {product.saleLossPerUnit} {product.unitLabel} por {product.unitLabel}
+                          </span>
+                        ) : null}
                       </td>
                       <td>{product.barcode || '—'}</td>
-                      <td>{typeLabels[product.type]}</td>
+                      <td>{typeLabelMap.get(product.type) ?? product.type}</td>
                       <td>{getProductSaleSummary(product)}</td>
                       {canViewCost && (
                         <td>
@@ -326,6 +377,7 @@ export function ProductsPage() {
         mode="edit"
         initialValues={formValues}
         stockCategories={stockCategories}
+        productTypes={productTypes}
         canViewCost={canViewCost}
         submitting={submitting}
         onClose={() => setModalOpen(false)}

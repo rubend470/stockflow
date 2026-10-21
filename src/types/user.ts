@@ -9,6 +9,8 @@ export interface AppUser {
   role: UserRole
   active: boolean
   menuPermissions?: string[]
+  businessIds?: string[]
+  currentBusinessId?: string
   presence?: UserPresence
   createdAt: string
 }

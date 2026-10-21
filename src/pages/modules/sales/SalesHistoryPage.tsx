@@ -14,11 +14,15 @@ import {
   summarizeSalesCollection,
   type EnrichedSale,
 } from '../../../services/reportService'
+import { listCashMovements } from '../../../services/cashMovementService'
 import { mergeCurrencyCashTotals } from '../../../utils/salePayments'
 import { deleteSale, getSaleItems, getSalePayments, listSales } from '../../../services/saleService'
-import type { Sale, SaleItem, SalePayment } from '../../../types/sale'
+import { getAppSettings } from '../../../services/settingsService'
+import { cashMovementTypeLabels, type CashMovement } from '../../../types/cashMovement'
+import type { CartItem, Sale, SaleItem, SalePayment, SalePaymentInput, SaleResult } from '../../../types/sale'
+import type { AppSettings } from '../../../types/settings'
 import { isOnLocalDate, todayDateInputValue } from '../../../utils/dates'
-import { formatBaseMoney } from '../../../utils/formatMoney'
+import { formatBaseMoney, formatMoney } from '../../../utils/formatMoney'
 import { userCanViewProfit, userHasAnyMenuPermission } from '../../../utils/menuPermissions'
 
 function formatDate(value: string) {
@@ -54,10 +58,18 @@ function isSaleInDateRange(createdAt: string, from: string, to: string) {
   return true
 }
 
+function isDateKeyInRange(dateKey: string, from: string, to: string) {
+  if (!dateKey) return false
+  if (from && dateKey < from) return false
+  if (to && dateKey > to) return false
+  return true
+}
+
 export function SalesHistoryPage() {
   const { user } = useAuth()
   const confirm = useConfirm()
   const [sales, setSales] = useState<EnrichedSale[]>([])
+  const [cashMovements, setCashMovements] = useState<CashMovement[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState('')
   const [error, setError] = useState('')
@@ -70,6 +82,8 @@ export function SalesHistoryPage() {
   const [detailPayments, setDetailPayments] = useState<SalePayment[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
+  const [detailPrintingTicket, setDetailPrintingTicket] = useState(false)
+  const [detailPrintError, setDetailPrintError] = useState('')
 
   const canViewProfit = userCanViewProfit(user)
   const canDeleteForTesting = userHasAnyMenuPermission(user, ['settings', 'users'])
@@ -83,9 +97,10 @@ export function SalesHistoryPage() {
     setError('')
 
     try {
-      const rawSales = await listSales()
+      const [rawSales, movements] = await Promise.all([listSales(), listCashMovements()])
       const enriched = await enrichSalesWithPayments(rawSales)
       setSales(enriched.sales)
+      setCashMovements(movements)
     } catch {
       setError('No se pudo cargar el historial de ventas.')
     } finally {
@@ -121,10 +136,37 @@ export function SalesHistoryPage() {
     [filteredSales],
   )
 
+  const filteredCashMovements = useMemo(() => {
+    return cashMovements.filter((movement) => {
+      if (hasDateFilter) {
+        return isDateKeyInRange(movement.movementDate, dateFrom, dateTo)
+      }
+      return movement.movementDate === todayValue
+    })
+  }, [cashMovements, dateFrom, dateTo, hasDateFilter, todayValue])
+
+  const cashMovementStats = useMemo(() => {
+    return filteredCashMovements.reduce(
+      (acc, movement) => {
+        if (movement.type === 'opening') acc.opening += movement.amountInBase
+        if (movement.type === 'in') acc.extraIn += movement.amountInBase
+        if (movement.type === 'out') acc.extraOut += movement.amountInBase
+        return acc
+      },
+      { opening: 0, extraIn: 0, extraOut: 0 },
+    )
+  }, [filteredCashMovements])
+
   const stats = useMemo(
     () => summarizeSalesCollection(filteredSales, canViewProfit),
     [filteredSales, canViewProfit],
   )
+
+  const expectedRegisterCash =
+    stats.cashInRegister +
+    cashMovementStats.opening +
+    cashMovementStats.extraIn -
+    cashMovementStats.extraOut
 
   const pagination = usePagination(filteredSales, 12)
 
@@ -132,6 +174,7 @@ export function SalesHistoryPage() {
     setSelectedSale(sale)
     setDetailOpen(true)
     setDetailLoading(true)
+    setDetailPrintError('')
     setDetailItems([])
     setDetailPayments([])
 
@@ -180,6 +223,98 @@ export function SalesHistoryPage() {
     }
   }
 
+  function buildTicketItems(items: SaleItem[]): CartItem[] {
+    return items.map((item) => ({
+      key: item.id,
+      productId: item.productId,
+      productName: item.productName,
+      isQuickItem: item.isQuickItem,
+      barcode: item.barcode,
+      saleMode: item.saleMode,
+      soldBy: item.soldBy,
+      unitLabel: item.unit,
+      unitsPerBundle: item.unitsPerBundle,
+      quantity: item.quantity,
+      stockQuantity: item.stockQuantity,
+      unitCost: item.unitCost,
+      unitPrice: item.unitPrice,
+      originalUnitPrice: item.originalUnitPrice,
+      manualUnitPrice: item.manualUnitPrice,
+      saleLossPerUnit: item.saleLossPerUnit,
+      enteredAmount: item.enteredAmount,
+      offerId: item.offerId,
+      offerType: item.offerType,
+      offerName: item.offerName,
+      discountAmount: item.discountAmount,
+      lineCost: item.lineCost,
+      lineRevenue: item.lineRevenue,
+      lineProfit: item.lineProfit,
+      stockAvailable: 0,
+      stockCategoryId: item.stockCategoryId,
+      stockCategoryName: item.stockCategoryName,
+    }))
+  }
+
+  function buildTicketPayments(payments: SalePayment[]): SalePaymentInput[] {
+    return payments.map((payment) => ({
+      methodId: payment.methodId,
+      methodName: payment.methodName,
+      currencyCode: payment.currencyCode,
+      amount: payment.amount,
+      amountInBase: payment.amountInBase,
+      reference: payment.reference,
+      isCredit: payment.isCredit,
+      clientId: payment.clientId,
+      clientName: payment.clientName,
+    }))
+  }
+
+  async function handlePrintSelectedSaleTicket() {
+    if (!selectedSale || detailLoading || detailItems.length === 0) return
+
+    setDetailPrintingTicket(true)
+    setDetailPrintError('')
+    setMessage('')
+
+    try {
+      const [settings, qz] = await Promise.all([
+        getAppSettings().catch<AppSettings>(() => ({
+          businessName: 'StockFlow',
+          address: '',
+          phone: '',
+          baseCurrency: selectedSale.baseCurrency,
+          taxEnabled: false,
+          taxRate: 0,
+          lowStockAlertEnabled: true,
+        })),
+        import('../../../services/qzService'),
+      ])
+      const saleForTicket: SaleResult & { createdAt?: string } = {
+        saleId: selectedSale.id,
+        saleNumber: selectedSale.number,
+        total: selectedSale.total,
+        profitTotal: selectedSale.profitTotal ?? 0,
+        createdAt: selectedSale.createdAt,
+      }
+
+      await qz.printSaleTicket({
+        sale: saleForTicket,
+        items: buildTicketItems(detailItems),
+        payments: buildTicketPayments(detailPayments),
+        settings,
+        cashierName: selectedSale.cashierName,
+        baseCurrencyCode: selectedSale.baseCurrency,
+      })
+
+      setMessage(`Ticket de venta ${selectedSale.number} enviado a impresión.`)
+    } catch (err) {
+      const { getQzFriendlyError } = await import('../../../services/qzService')
+      setDetailPrintError(getQzFriendlyError(err))
+    } finally {
+      setDetailPrintingTicket(false)
+    }
+  }
+
   return (
     <AppLayout title="Historial de ventas" subtitle="Control de caja, crédito y totales">
       <AnimatedPanel className="finance-panel">
@@ -207,6 +342,22 @@ export function SalesHistoryPage() {
             <strong className="finance-profit">{formatBaseMoney(stats.cashInRegister)}</strong>
           </article>
           <article>
+            <span>Base del día (COP)</span>
+            <strong>{formatBaseMoney(cashMovementStats.opening)}</strong>
+          </article>
+          <article>
+            <span>Entradas adicionales</span>
+            <strong className="finance-profit">{formatBaseMoney(cashMovementStats.extraIn)}</strong>
+          </article>
+          <article>
+            <span>Salidas adicionales</span>
+            <strong className="text-danger">{formatBaseMoney(cashMovementStats.extraOut)}</strong>
+          </article>
+          <article>
+            <span>Debe haber en caja</span>
+            <strong className="finance-profit">{formatBaseMoney(expectedRegisterCash)}</strong>
+          </article>
+          <article>
             <span>A crédito (COP)</span>
             <strong>{formatBaseMoney(stats.creditAmount)}</strong>
           </article>
@@ -223,6 +374,58 @@ export function SalesHistoryPage() {
         </div>
 
         <CurrencyCashBreakdown items={filteredCashByCurrency} />
+
+        <section className="cash-closure-section">
+          <h3 className="finance-detail-title">Base, entradas y salidas del periodo</h3>
+          {filteredCashMovements.length === 0 ? (
+            <p className="finance-detail-hint">
+              No hay base inicial ni movimientos adicionales para este periodo.
+            </p>
+          ) : (
+            <div className="finance-table-wrap">
+              <table className="finance-table">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Descripción</th>
+                    <th>Moneda / forma</th>
+                    <th>Monto</th>
+                    <th>Equiv. COP</th>
+                    <th>Usuario</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCashMovements.map((movement, index) => (
+                    <AnimatedTableRow key={movement.id} index={index}>
+                      <td>{movement.movementDate}</td>
+                      <td>{cashMovementTypeLabels[movement.type]}</td>
+                      <td>
+                        <strong>{movement.description}</strong>
+                        {movement.notes && <small className="expense-note">{movement.notes}</small>}
+                      </td>
+                      <td>
+                        <strong>{movement.currencyCode}</strong>
+                        <small className="expense-note">
+                          {movement.methodName || 'Caja'}
+                          {movement.reference ? ` · Ref. ${movement.reference}` : ''}
+                        </small>
+                      </td>
+                      <td>
+                        <strong className={movement.type === 'out' ? 'text-danger' : 'finance-profit'}>
+                          {movement.type === 'out' ? '−' : ''}
+                          {formatMoney(movement.amount, movement.currencyCode)}
+                        </strong>
+                      </td>
+                      <td>{formatBaseMoney(movement.amountInBase)}</td>
+                      <td>{movement.createdByName || '—'}</td>
+                    </AnimatedTableRow>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
         <div className="finance-filters finance-filters-row">
           <label className="finance-filter-field finance-filter-field-grow">
@@ -371,15 +574,19 @@ export function SalesHistoryPage() {
         canDeleteForTesting={canDeleteForTesting}
         deleting={Boolean(selectedSale && deletingId === selectedSale.id)}
         loading={detailLoading}
+        printingTicket={detailPrintingTicket}
+        printTicketError={detailPrintError}
         onClose={() => {
           setDetailOpen(false)
           setSelectedSale(null)
+          setDetailPrintError('')
         }}
         onDelete={
           selectedSale && canDeleteForTesting
             ? () => handleDeleteSale(selectedSale)
             : undefined
         }
+        onPrintTicket={handlePrintSelectedSaleTicket}
       />
     </AppLayout>
   )

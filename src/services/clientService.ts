@@ -1,5 +1,4 @@
 import {
-  collection,
   deleteDoc,
   doc,
   getDoc,
@@ -9,7 +8,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type { Client, ClientFormInput } from '../types/client'
 import { isValidPhone, normalizePhone } from '../utils/phone'
 
@@ -42,7 +41,7 @@ function mapClient(id: string, data: Record<string, unknown>): Client {
 }
 
 export async function listClients(): Promise<Client[]> {
-  const snapshot = await getDocs(collection(db, 'clients'))
+  const snapshot = await getDocs(tenantCollectionRef('clients'))
   return snapshot.docs
     .map((item) => mapClient(item.id, item.data()))
     .filter((client) => client.active)
@@ -50,14 +49,14 @@ export async function listClients(): Promise<Client[]> {
 }
 
 export async function listAllClients(): Promise<Client[]> {
-  const snapshot = await getDocs(collection(db, 'clients'))
+  const snapshot = await getDocs(tenantCollectionRef('clients'))
   return snapshot.docs
     .map((item) => mapClient(item.id, item.data()))
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
 export async function getClientById(id: string): Promise<Client | null> {
-  const snapshot = await getDoc(doc(db, 'clients', id))
+  const snapshot = await getDoc(tenantDocumentRef('clients', id))
   if (!snapshot.exists()) return null
   return mapClient(snapshot.id, snapshot.data())
 }
@@ -105,7 +104,7 @@ export async function findOrCreateClientForCredit(
   )
   if (byPhone) {
     if (!byPhone.phone || normalizePhone(byPhone.phone) !== normalizedPhone) {
-      await updateDoc(doc(db, 'clients', byPhone.id), {
+      await updateDoc(tenantDocumentRef('clients', byPhone.id), {
         phone: trimmedPhone,
         updatedAt: serverTimestamp(),
       })
@@ -117,7 +116,7 @@ export async function findOrCreateClientForCredit(
     (client) => client.name.toLowerCase() === trimmedName.toLowerCase(),
   )
   if (byName) {
-    await updateDoc(doc(db, 'clients', byName.id), {
+    await updateDoc(tenantDocumentRef('clients', byName.id), {
       phone: trimmedPhone,
       updatedAt: serverTimestamp(),
     })
@@ -176,7 +175,7 @@ export async function createClient(input: ClientFormInput) {
     throw new Error('El límite de crédito no puede ser negativo.')
   }
 
-  const ref = doc(collection(db, 'clients'))
+  const ref = doc(tenantCollectionRef('clients'))
   await setDoc(ref, {
     name: input.name.trim(),
     phone: input.phone.trim() || null,
@@ -201,7 +200,7 @@ export async function updateClient(id: string, input: ClientFormInput) {
     throw new Error('El límite de crédito no puede ser negativo.')
   }
 
-  await updateDoc(doc(db, 'clients', id), {
+  await updateDoc(tenantDocumentRef('clients', id), {
     name: input.name.trim(),
     phone: input.phone.trim() || null,
     email: input.email.trim() || null,
@@ -222,11 +221,11 @@ export async function deleteClient(id: string) {
     throw new Error('No puedes eliminar un cliente con saldo pendiente.')
   }
 
-  await deleteDoc(doc(db, 'clients', id))
+  await deleteDoc(tenantDocumentRef('clients', id))
 }
 
 export async function updateClientBalance(id: string, delta: number) {
-  await updateDoc(doc(db, 'clients', id), {
+  await updateDoc(tenantDocumentRef('clients', id), {
     balance: increment(delta),
     updatedAt: serverTimestamp(),
   })

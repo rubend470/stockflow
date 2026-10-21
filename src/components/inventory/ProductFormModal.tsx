@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ModalCloseButton } from '../ui/ModalFrame'
-import type { ProductFormInput } from '../../types/product'
+import type { ProductFormInput, ProductTypeOption } from '../../types/product'
 import type { StockCategory } from '../../types/stockCategory'
 import { ProductForm } from './ProductForm'
 
@@ -9,6 +9,7 @@ interface ProductFormModalProps {
   mode: 'create' | 'edit'
   initialValues: ProductFormInput
   stockCategories?: StockCategory[]
+  productTypes?: ProductTypeOption[]
   canViewCost: boolean
   submitting: boolean
   nested?: boolean
@@ -22,6 +23,7 @@ export function ProductFormModal({
   mode,
   initialValues,
   stockCategories = [],
+  productTypes,
   canViewCost,
   submitting,
   nested = false,
@@ -68,6 +70,7 @@ export function ProductFormModal({
             key={formKey}
             initialValues={initialValues}
             stockCategories={stockCategories}
+            productTypes={productTypes}
             canViewCost={canViewCost}
             submitting={submitting}
             omitStockFields={fromPurchaseEntry}

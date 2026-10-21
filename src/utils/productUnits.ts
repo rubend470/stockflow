@@ -16,7 +16,12 @@ export function getStockQuantity(product: Product, quantity: number, saleMode: S
   if (saleMode === 'bundle') {
     return quantity * getUnitsPerBundle(product)
   }
-  return quantity
+
+  if (!product.hasSaleLoss || !product.saleLossPerUnit || product.saleLossPerUnit <= 0) {
+    return quantity
+  }
+
+  return Number((quantity + quantity * product.saleLossPerUnit).toFixed(3))
 }
 
 export function normalizeLegacyProduct(data: Record<string, unknown>): Partial<Product> {
@@ -57,6 +62,8 @@ export function normalizeProductInput(input: ProductFormInput) {
       unitsPerBundle: null,
       bundleCostPrice: null,
       bundleSalePrice: null,
+      hasSaleLoss: input.soldBy === 'weight' && input.hasSaleLoss,
+      saleLossPerUnit: input.soldBy === 'weight' && input.hasSaleLoss ? input.saleLossPerUnit : 0,
       unitLabel: input.soldBy === 'weight' ? input.unitLabel : input.unitLabel || 'und',
       stock,
       minStock,
@@ -80,6 +87,8 @@ export function normalizeProductInput(input: ProductFormInput) {
     unitsPerBundle: input.unitsPerBundle,
     bundleCostPrice: linkedToCategory ? null : input.bundleCostPrice ?? 0,
     bundleSalePrice: input.bundleSalePrice,
+    hasSaleLoss: input.soldBy === 'weight' && input.hasSaleLoss,
+    saleLossPerUnit: input.soldBy === 'weight' && input.hasSaleLoss ? input.saleLossPerUnit : 0,
     stock,
     minStock,
   }
@@ -88,7 +97,8 @@ export function normalizeProductInput(input: ProductFormInput) {
 export function formatStockSummary(
   product: Pick<Product, 'stock' | 'unitLabel' | 'allowsBundle' | 'unitsPerBundle'>,
 ) {
-  const base = `${product.stock} ${product.unitLabel}`
+  const stock = Number(product.stock.toFixed(3))
+  const base = `${stock} ${product.unitLabel}`
 
   if (!productAllowsBundle(product)) {
     return base
@@ -137,7 +147,11 @@ export function formatProductPrices(product: Product) {
     return retail
   }
 
-  return `${retail} · Al mayor: ${formatBaseMoney(product.bundleSalePrice ?? 0)}`
+  const unitsPerBundle = getUnitsPerBundle(product)
+  const bundleUnitPrice = product.bundleSalePrice ?? 0
+  const bundleTotal = bundleUnitPrice * unitsPerBundle
+
+  return `${retail} · Al mayor: ${formatBaseMoney(bundleUnitPrice)}/${product.unitLabel} x ${unitsPerBundle} = ${formatBaseMoney(bundleTotal)}`
 }
 
 export function getSoldByLabel(soldBy: SoldBy) {
@@ -162,7 +176,7 @@ export function getSaleModeLabel(saleMode: SaleMode) {
 }
 
 export function needsSaleQuantityModal(product: Product) {
-  return product.soldBy === 'weight' || productAllowsBundle(product)
+  return productAllowsAmountEntry(product) || productAllowsBundle(product)
 }
 
 export function getDefaultSaleMode(_product: Product): SaleMode {
@@ -171,6 +185,10 @@ export function getDefaultSaleMode(_product: Product): SaleMode {
 
 export function getDefaultQuantity(_product: Product, _saleMode: SaleMode) {
   return '1'
+}
+
+export function productAllowsAmountEntry(product: Product) {
+  return product.soldBy === 'weight'
 }
 
 export function getQuantityStep(soldBy: SoldBy, saleMode: SaleMode) {

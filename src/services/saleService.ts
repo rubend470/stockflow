@@ -1,5 +1,4 @@
 import {
-  collection,
   doc,
   getDoc,
   getDocs,
@@ -12,13 +11,14 @@ import {
 } from 'firebase/firestore'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../constants/currency'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import { getClientById } from './clientService'
 import { getStockCategoryById } from './stockCategoryService'
 import type { CreateSaleInput, Sale, SaleItem, SalePayment, SalePaymentInput, SaleResult } from '../types/sale'
 import type { SaleMode, SoldBy } from '../types/product'
 
 async function getNextSaleNumber() {
-  const counterRef = doc(db, 'settings', 'sales')
+  const counterRef = tenantDocumentRef('settings', 'sales')
 
   return runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(counterRef)
@@ -89,7 +89,16 @@ function mapSaleItem(id: string, data: Record<string, unknown>): SaleItem {
     stockQuantity: Number(data.stockQuantity ?? 0),
     unitCost: Number(data.unitCost ?? 0),
     unitPrice: Number(data.unitPrice ?? 0),
-    enteredAmount: data.enteredAmount !== undefined ? Number(data.enteredAmount) : undefined,
+    originalUnitPrice: data.originalUnitPrice != null ? Number(data.originalUnitPrice) : undefined,
+    manualUnitPrice: data.manualUnitPrice === true,
+    saleLossPerUnit: data.saleLossPerUnit != null ? Number(data.saleLossPerUnit) : undefined,
+    enteredAmount: data.enteredAmount != null ? Number(data.enteredAmount) : undefined,
+    offerId: data.offerId ? String(data.offerId) : undefined,
+    offerType: data.offerType === 'combo' || data.offerType === 'promotion' ? data.offerType : undefined,
+    offerName: data.offerName ? String(data.offerName) : undefined,
+    discountAmount: data.discountAmount != null ? Number(data.discountAmount) : undefined,
+    stockCategoryId: data.stockCategoryId ? String(data.stockCategoryId) : undefined,
+    stockCategoryName: data.stockCategoryName ? String(data.stockCategoryName) : undefined,
     lineCost: Number(data.lineCost ?? 0),
     lineRevenue: Number(data.lineRevenue ?? 0),
     lineProfit: Number(data.lineProfit ?? 0),
@@ -147,7 +156,7 @@ async function validateCreditLimits(creditByClient: Map<string, number>) {
 }
 
 export async function listSales(limit = 200): Promise<Sale[]> {
-  const snapshot = await getDocs(collection(db, 'sales'))
+  const snapshot = await getDocs(tenantCollectionRef('sales'))
 
   return snapshot.docs
     .map((item) => mapSale(item.id, item.data()))
@@ -156,18 +165,18 @@ export async function listSales(limit = 200): Promise<Sale[]> {
 }
 
 export async function getSaleById(id: string): Promise<Sale | null> {
-  const snapshot = await getDoc(doc(db, 'sales', id))
+  const snapshot = await getDoc(tenantDocumentRef('sales', id))
   if (!snapshot.exists()) return null
   return mapSale(snapshot.id, snapshot.data())
 }
 
 export async function getSaleItems(saleId: string): Promise<SaleItem[]> {
-  const snapshot = await getDocs(collection(db, 'sales', saleId, 'items'))
+  const snapshot = await getDocs(tenantCollectionRef('sales', saleId, 'items'))
   return snapshot.docs.map((item) => mapSaleItem(item.id, item.data()))
 }
 
 export async function getSalePayments(saleId: string): Promise<SalePayment[]> {
-  const snapshot = await getDocs(collection(db, 'sales', saleId, 'payments'))
+  const snapshot = await getDocs(tenantCollectionRef('sales', saleId, 'payments'))
   return snapshot.docs
     .map((item) => mapSalePayment(item.id, item.data()))
     .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
@@ -175,6 +184,7 @@ export async function getSalePayments(saleId: string): Promise<SalePayment[]> {
 
 export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
   const subtotal = input.items.reduce((sum, item) => sum + item.lineRevenue, 0)
+  const discount = input.items.reduce((sum, item) => sum + (item.discountAmount ?? 0), 0)
   const profitTotal = input.items.reduce((sum, item) => sum + item.lineProfit, 0)
   const paidInBase = input.payments.reduce((sum, payment) => sum + payment.amountInBase, 0)
   const cashPaid = input.payments
@@ -189,8 +199,8 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
   }
 
   const saleRef = input.clientRequestId
-    ? doc(db, 'sales', input.clientRequestId)
-    : doc(collection(db, 'sales'))
+    ? tenantDocumentRef('sales', input.clientRequestId)
+    : doc(tenantCollectionRef('sales'))
   const existingSale = input.clientRequestId ? await getDoc(saleRef) : null
   if (existingSale?.exists()) {
     const sale = mapSale(existingSale.id, existingSale.data())
@@ -244,7 +254,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
     clientId: input.clientId ?? primaryCreditClient?.clientId ?? null,
     clientName: input.clientName ?? primaryCreditClient?.clientName ?? null,
     subtotal,
-    discount: 0,
+    discount,
     tax: 0,
     total: subtotal,
     baseCurrency: input.baseCurrency,
@@ -258,7 +268,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
   })
 
   input.items.forEach((item) => {
-    const itemRef = doc(collection(db, 'sales', saleRef.id, 'items'))
+    const itemRef = doc(tenantCollectionRef('sales', saleRef.id, 'items'))
     batch.set(itemRef, {
       productId: item.productId,
       productName: item.productName,
@@ -272,7 +282,16 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
       stockQuantity: item.stockQuantity,
       unitCost: item.unitCost,
       unitPrice: item.unitPrice,
+      originalUnitPrice: item.originalUnitPrice ?? null,
+      manualUnitPrice: item.manualUnitPrice === true,
+      saleLossPerUnit: item.saleLossPerUnit ?? null,
       enteredAmount: item.enteredAmount ?? null,
+      offerId: item.offerId ?? null,
+      offerType: item.offerType ?? null,
+      offerName: item.offerName ?? null,
+      discountAmount: item.discountAmount ?? null,
+      stockCategoryId: item.stockCategoryId ?? null,
+      stockCategoryName: item.stockCategoryName ?? null,
       lineCost: item.lineCost,
       lineRevenue: item.lineRevenue,
       lineProfit: item.lineProfit,
@@ -281,7 +300,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
 
     if (item.isQuickItem) return
 
-    const movementRef = doc(collection(db, 'inventory_movements'))
+    const movementRef = doc(tenantCollectionRef('inventory_movements'))
     batch.set(movementRef, {
       productId: item.stockCategoryId ? null : item.productId,
       stockCategoryId: item.stockCategoryId ?? null,
@@ -299,12 +318,12 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
     })
 
     if (item.stockCategoryId) {
-      batch.update(doc(db, 'stock_categories', item.stockCategoryId), {
+      batch.update(tenantDocumentRef('stock_categories', item.stockCategoryId), {
         stock: increment(-item.stockQuantity),
         updatedAt: serverTimestamp(),
       })
     } else {
-      batch.update(doc(db, 'products', item.productId), {
+      batch.update(tenantDocumentRef('products', item.productId), {
         stock: increment(-item.stockQuantity),
         updatedAt: serverTimestamp(),
       })
@@ -312,7 +331,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
   })
 
   input.payments.forEach((payment) => {
-    const paymentRef = doc(collection(db, 'sales', saleRef.id, 'payments'))
+    const paymentRef = doc(tenantCollectionRef('sales', saleRef.id, 'payments'))
     batch.set(paymentRef, {
       methodId: payment.methodId,
       methodName: payment.methodName,
@@ -333,7 +352,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
     const client = await getClientById(clientId)
     if (!client) continue
 
-    const debtRef = doc(collection(db, 'debts'))
+    const debtRef = doc(tenantCollectionRef('debts'))
     batch.set(debtRef, {
       clientId: client.id,
       clientName: client.name,
@@ -347,7 +366,7 @@ export async function createSale(input: CreateSaleInput): Promise<SaleResult> {
       updatedAt: serverTimestamp(),
     })
 
-    batch.update(doc(db, 'clients', client.id), {
+    batch.update(tenantDocumentRef('clients', client.id), {
       balance: increment(amount),
       updatedAt: serverTimestamp(),
     })
@@ -371,16 +390,16 @@ export async function deleteSale(saleId: string) {
   }
 
   const [itemsSnap, paymentsSnap, movementsSnap, debtsSnap] = await Promise.all([
-    getDocs(collection(db, 'sales', saleId, 'items')),
-    getDocs(collection(db, 'sales', saleId, 'payments')),
+    getDocs(tenantCollectionRef('sales', saleId, 'items')),
+    getDocs(tenantCollectionRef('sales', saleId, 'payments')),
     getDocs(
       query(
-        collection(db, 'inventory_movements'),
+        tenantCollectionRef('inventory_movements'),
         where('referenceType', '==', 'sale'),
         where('referenceId', '==', saleId),
       ),
     ),
-    getDocs(query(collection(db, 'debts'), where('saleId', '==', saleId))),
+    getDocs(query(tenantCollectionRef('debts'), where('saleId', '==', saleId))),
   ])
 
   const batch = writeBatch(db)
@@ -390,7 +409,7 @@ export async function deleteSale(saleId: string) {
     const quantity = Math.abs(Number(data.quantity ?? 0))
 
     if (data.stockCategoryId) {
-      const categoryRef = doc(db, 'stock_categories', String(data.stockCategoryId))
+      const categoryRef = tenantDocumentRef('stock_categories', String(data.stockCategoryId))
       const categorySnap = await getDoc(categoryRef)
       if (categorySnap.exists()) {
         batch.update(categoryRef, {
@@ -399,7 +418,7 @@ export async function deleteSale(saleId: string) {
         })
       }
     } else if (data.productId) {
-      const productRef = doc(db, 'products', String(data.productId))
+      const productRef = tenantDocumentRef('products', String(data.productId))
       const productSnap = await getDoc(productRef)
       if (productSnap.exists()) {
         batch.update(productRef, {
@@ -418,7 +437,7 @@ export async function deleteSale(saleId: string) {
     const clientId = data.clientId ? String(data.clientId) : ''
 
     if (clientId && balance > 0) {
-      const clientRef = doc(db, 'clients', clientId)
+      const clientRef = tenantDocumentRef('clients', clientId)
       const clientSnap = await getDoc(clientRef)
       if (clientSnap.exists()) {
         batch.update(clientRef, {
@@ -433,7 +452,7 @@ export async function deleteSale(saleId: string) {
 
   itemsSnap.docs.forEach((itemDoc) => batch.delete(itemDoc.ref))
   paymentsSnap.docs.forEach((paymentDoc) => batch.delete(paymentDoc.ref))
-  batch.delete(doc(db, 'sales', saleId))
+  batch.delete(tenantDocumentRef('sales', saleId))
 
   await batch.commit()
 }

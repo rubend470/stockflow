@@ -19,6 +19,7 @@ import {
   setDoc,
 } from 'firebase/firestore'
 import { auth, db, firebaseConfig } from '../lib/firebase'
+import { getActiveBusinessId } from '../lib/tenantScope'
 import type { AppUser, UserRole } from '../types/user'
 import { getAllMenuPermissionIds, getDefaultMenuPermissionsForRole, normalizeMenuPermissions } from '../utils/menuPermissions'
 
@@ -92,6 +93,7 @@ export async function createUserByAdmin(input: CreateUserByAdminInput): Promise<
 
   const secondaryApp = initializeApp(firebaseConfig, `admin-create-${Date.now()}`)
   const secondaryAuth = getAuth(secondaryApp)
+  const businessId = getActiveBusinessId()
 
   try {
     const credential = await createUserWithEmailAndPassword(secondaryAuth, email, input.password)
@@ -106,6 +108,7 @@ export async function createUserByAdmin(input: CreateUserByAdminInput): Promise<
         input.role === 'super_admin'
           ? getAllMenuPermissionIds()
           : normalizeMenuPermissions(input.menuPermissions),
+      ...(businessId ? { businessIds: [businessId], currentBusinessId: businessId } : {}),
       createdAt: serverTimestamp(),
     })
 
@@ -119,6 +122,8 @@ export async function createUserByAdmin(input: CreateUserByAdminInput): Promise<
         input.role === 'super_admin'
           ? getAllMenuPermissionIds()
           : normalizeMenuPermissions(input.menuPermissions),
+      businessIds: businessId ? [businessId] : undefined,
+      currentBusinessId: businessId,
       createdAt: new Date().toISOString(),
     }
   } finally {
@@ -147,6 +152,8 @@ export async function getUserProfile(uid: string): Promise<AppUser | null> {
     role: data.role as UserRole,
     active: data.active !== false,
     menuPermissions,
+    businessIds: Array.isArray(data.businessIds) ? data.businessIds.map(String) : undefined,
+    currentBusinessId: data.currentBusinessId ? String(data.currentBusinessId) : undefined,
     createdAt: data.createdAt?.toDate?.()?.toISOString() ?? data.createdAt,
   }
 }

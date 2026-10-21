@@ -65,6 +65,36 @@
   font-size: 0.86rem;
 }
 
+.pos-shortcuts-strip {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.08), transparent 45%),
+    var(--surface);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.055);
+}
+
+.pos-shortcuts-strip-header {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 5.8rem;
+}
+
+.pos-shortcuts-strip-header strong {
+  color: var(--text);
+}
+
+.pos-shortcuts-strip-header span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
 .pos-register-main,
 .pos-register-side {
   min-width: 0;
@@ -451,6 +481,10 @@
   align-items: flex-start;
 }
 
+.pos-barcode-scan-button {
+  min-height: 3.35rem;
+}
+
 .pos-search-row input,
 .pos-autocomplete input {
   width: 100%;
@@ -478,6 +512,115 @@
 
 .pos-quick-sale-btn {
   margin-top: 0.75rem;
+}
+
+.pos-combos-panel {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pos-combos-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.86rem;
+}
+
+.pos-combos-header strong {
+  color: var(--text);
+}
+
+.pos-combos-header span {
+  min-width: 1.7rem;
+  min-height: 1.7rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.13);
+  color: var(--success);
+  font-weight: 800;
+}
+
+.pos-combos-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.pos-combo-card {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: var(--surface);
+  color: var(--text);
+  display: grid;
+  gap: 0.25rem;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.pos-combo-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(34, 197, 94, 0.45);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.pos-combo-card span {
+  font-weight: 800;
+}
+
+.pos-combo-card strong {
+  color: var(--success);
+}
+
+.pos-combo-card small {
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.pos-shortcuts-panel {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  padding-bottom: 0.1rem;
+}
+
+.pos-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex: 0 0 auto;
+  padding: 0.58rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: color-mix(in srgb, var(--surface-muted) 65%, var(--surface));
+}
+
+.pos-shortcut-row kbd {
+  flex: 0 0 auto;
+  min-width: 5rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.pos-shortcut-row span {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .pos-catalog {
@@ -601,6 +744,15 @@
   overflow-wrap: anywhere;
 }
 
+.pos-cart-item-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
 .pos-cart-item-meta,
 .pos-payment-list span {
   display: flex;
@@ -609,6 +761,28 @@
   margin-top: 0.35rem;
   color: var(--text-muted);
   font-size: 0.88rem;
+}
+
+.pos-cart-bundle-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pos-cart-bundle-toggle input {
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: var(--accent);
 }
 
 .pos-qty-controls {
@@ -721,6 +895,27 @@
   margin: 0;
 }
 
+.pos-change-due,
+.pos-change-missing {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.8rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.pos-change-due {
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.pos-change-missing {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+}
+
 .pos-payment-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -750,6 +945,14 @@
   border-radius: 0.75rem;
   background: var(--surface-muted);
   color: var(--text);
+}
+
+.pos-field .money-field {
+  width: 100%;
+}
+
+.pos-field .money-field input {
+  min-width: 0;
 }
 
 .pos-amount-row {
@@ -1245,6 +1448,34 @@
     padding: 0.8rem;
   }
 
+  .pos-shortcuts-strip {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    padding: 0.75rem;
+    border-radius: 0.9rem;
+  }
+
+  .pos-shortcuts-strip-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .pos-shortcut-row {
+    gap: 0.5rem;
+    padding: 0.52rem 0.58rem;
+  }
+
+  .pos-shortcut-row kbd {
+    min-width: 4.4rem;
+    font-size: 0.72rem;
+  }
+
+  .pos-shortcut-row span {
+    font-size: 0.78rem;
+  }
+
   .pos-offline-status {
     align-items: stretch;
     flex-direction: column;
@@ -1317,13 +1548,52 @@
 
   .pos-search-row,
   .pos-payment-grid,
-  .pos-modal-actions,
   .pos-credit-inline-grid {
     grid-template-columns: 1fr;
   }
 
   .pos-search-row {
     display: grid;
+  }
+
+  .pos-barcode-scan-button {
+    width: 100%;
+  }
+
+  .pos-modal-backdrop {
+    padding: max(0.5rem, env(safe-area-inset-top)) 0.5rem max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .pos-modal {
+    max-height: min(94dvh, calc(100dvh - 1rem));
+    padding: 1rem;
+    border-radius: 0.95rem;
+  }
+
+  .pos-modal h3 {
+    font-size: 1.05rem;
+    line-height: 1.2;
+  }
+
+  .pos-sale-mode-toggle {
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+  }
+
+  .pos-sale-mode-toggle button {
+    min-width: 0;
+    padding-inline: 0.5rem;
+  }
+
+  .pos-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .pos-modal-actions .pos-btn {
+    width: 100%;
+    min-height: 3rem;
   }
 
   .pos-search-row input,

@@ -62,6 +62,12 @@
   font-weight: 600;
 }
 
+.finance-muted {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .finance-filters input {
   width: 100%;
   max-width: 420px;
@@ -426,11 +432,69 @@
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 
+.cash-movements-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.cash-movement-entry-panel {
+  min-width: 0;
+}
+
+.cash-movement-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.cash-movement-summary article {
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--surface-muted);
+}
+
+.cash-movement-summary article span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.cash-movement-summary article strong {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--text);
+  font-size: 1.2rem;
+  overflow-wrap: anywhere;
+}
+
+.finance-badge.cash-movement-opening {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+}
+
+.finance-badge.cash-movement-in {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+.finance-badge.cash-movement-out {
+  background: rgba(190, 18, 60, 0.12);
+  color: #be123c;
+}
+
 @media (max-width: 960px) {
   .cash-closure-layout {
     grid-template-columns: 1fr;
   }
 
+  .cash-movements-layout,
   .expenses-layout,
   .expense-metrics {
     grid-template-columns: 1fr 1fr;
@@ -758,6 +822,17 @@
   font: inherit;
 }
 
+.finance-inline-input {
+  width: min(100%, 14rem);
+  min-height: 2.65rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+}
+
 .finance-field select,
 .finance-select {
   appearance: none;
@@ -774,10 +849,33 @@
   cursor: pointer;
 }
 
+.offer-product-scan-row {
+  min-width: 0;
+}
+
+.offer-product-scan-row .barcode-scan-button {
+  min-height: 2.85rem;
+}
+
 .finance-field select:disabled,
 .finance-select:disabled {
   opacity: 0.65;
   cursor: not-allowed;
+}
+
+.finance-check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.finance-check-row input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
 }
 
 .collect-total-btn {
@@ -1248,22 +1346,27 @@
   }
 
   .expenses-layout,
+  .cash-movements-layout,
   .expense-metrics,
   .expense-form-grid,
-  .expense-range {
+  .expense-range,
+  .cash-movement-summary {
     grid-template-columns: 1fr;
   }
 
   .expense-form-grid,
   .expense-range,
+  .cash-movement-summary,
   .expense-form-grid .finance-field,
-  .expense-range .finance-field {
+  .expense-range .finance-field,
+  .cash-movement-summary .finance-field {
     width: 100%;
     max-width: 100%;
   }
 
   .expense-form-grid input[type='date'],
-  .expense-range input[type='date'] {
+  .expense-range input[type='date'],
+  .cash-movement-summary input[type='date'] {
     appearance: none;
     -webkit-appearance: none;
     display: block;
@@ -1284,6 +1387,18 @@
 
   .expense-form {
     gap: 0.8rem;
+  }
+
+  .offer-product-scan-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+  }
+
+  .offer-product-scan-row .barcode-scan-button {
+    width: auto;
+    min-width: 3.15rem;
+    padding-inline: 0.85rem;
   }
 
   .expense-metrics {

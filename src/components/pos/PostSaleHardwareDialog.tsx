@@ -35,7 +35,7 @@ export function PostSaleHardwareDialog({
         <h2>Venta registrada</h2>
         <p>
           {saleNumber ? `Venta ${saleNumber}` : 'Venta lista'}
-          {totalLabel ? ` por ${totalLabel}` : ''}. Elige la acción para la impresora y gaveta.
+          {totalLabel ? ` por ${totalLabel}` : ''}. La gaveta se abre automáticamente; el ticket es opcional.
         </p>
 
         {error && <div className="alert alert-error post-sale-error">{error}</div>}
@@ -48,14 +48,6 @@ export function PostSaleHardwareDialog({
             disabled={busy}
           >
             {busy ? 'Procesando...' : 'Imprimir ticket'}
-          </button>
-          <button
-            type="button"
-            className="pos-btn pos-btn-secondary"
-            onClick={() => onSelect('open-drawer')}
-            disabled={busy}
-          >
-            Solo abrir gaveta
           </button>
           <button
             type="button"

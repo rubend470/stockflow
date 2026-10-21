@@ -15,6 +15,11 @@ dist-ssr
 .env
 .env.*
 !.env.example
+private-key.pem
+.dev.vars*
+cloudflare-worker/private-key.pem
+backups/firestore/*.json
+backups/firestore/*.html
 
 # Editor directories and files
 .vscode/*

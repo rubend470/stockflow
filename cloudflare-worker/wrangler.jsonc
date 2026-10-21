@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "stockflow-qz-signing",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-24",
+  "workers_dev": true,
+  "vars": {
+    "FIREBASE_PROJECT_ID": "stockflow-749ad",
+    "ALLOWED_ORIGINS": "https://stockflow-sistem.web.app,https://stockflow-sistem.firebaseapp.com,http://localhost:5173"
+  }
+}

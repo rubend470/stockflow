@@ -14,8 +14,11 @@ interface SaleDetailModalProps {
   canDeleteForTesting?: boolean
   deleting?: boolean
   loading: boolean
+  printingTicket?: boolean
+  printTicketError?: string
   onClose: () => void
   onDelete?: () => void
+  onPrintTicket?: () => void
 }
 
 function formatDate(value: string) {
@@ -35,8 +38,11 @@ export function SaleDetailModal({
   canDeleteForTesting = false,
   deleting = false,
   loading,
+  printingTicket = false,
+  printTicketError = '',
   onClose,
   onDelete,
+  onPrintTicket,
 }: SaleDetailModalProps) {
   if (!open || !sale) return null
 
@@ -119,11 +125,14 @@ export function SaleDetailModal({
                     <tr key={item.id}>
                       <td>{item.productName}</td>
                       <td>
-                        {item.quantity} {item.unit}
-                        {item.saleMode === 'bundle' ? ' (al mayor)' : ''}
+                        {item.saleMode === 'bundle' && item.unitsPerBundle
+                          ? `${item.quantity} al mayor (${item.stockQuantity} ${item.unit})`
+                          : `${item.quantity} ${item.unit}`}
                       </td>
                       <td>
                         <MoneyText amount={item.unitPrice} />
+                        {item.saleMode === 'bundle' && <span className="finance-muted"> / {item.unit}</span>}
+                        {item.manualUnitPrice && <span className="finance-muted"> · manual</span>}
                       </td>
                       <td>
                         <MoneyText amount={item.lineRevenue} />
@@ -176,6 +185,8 @@ export function SaleDetailModal({
           </ExpandableDetail>
         )}
 
+        {printTicketError && <div className="alert alert-error">{printTicketError}</div>}
+
         <div className="finance-form-actions">
           {canDeleteForTesting && onDelete && (
             <button
@@ -185,6 +196,16 @@ export function SaleDetailModal({
               disabled={deleting || loading}
             >
               {deleting ? 'Borrando...' : 'Borrar venta (prueba)'}
+            </button>
+          )}
+          {onPrintTicket && (
+            <button
+              type="button"
+              className="finance-btn finance-btn-primary"
+              onClick={onPrintTicket}
+              disabled={loading || printingTicket || items.length === 0}
+            >
+              {printingTicket ? 'Imprimiendo...' : 'Imprimir ticket'}
             </button>
           )}
           <button type="button" className="finance-btn finance-btn-secondary" onClick={onClose}>

@@ -1,5 +1,4 @@
 import {
-  collection,
   doc,
   getDoc,
   getDocs,
@@ -10,11 +9,15 @@ import {
   writeBatch,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type {
+  CreateCategoryLossInput,
   CreateCategoryMovementInput,
   StockCategory,
   StockCategoryFormInput,
 } from '../types/stockCategory'
+import { roundMoney } from '../utils/formatMoney'
+import { computeWasteLineCost } from '../utils/wasteCost'
 
 function mapTimestamp(value: unknown) {
   const typed = value as { toDate?: () => Date } | string | undefined
@@ -30,6 +33,7 @@ function mapCategory(id: string, data: Record<string, unknown>): StockCategory {
     id,
     name: String(data.name ?? ''),
     unitLabel: String(data.unitLabel ?? 'kg'),
+    costPrice: Number(data.costPrice ?? 0),
     stock: Number(data.stock ?? 0),
     minStock: Number(data.minStock ?? 0),
     active: data.active !== false,
@@ -57,7 +61,7 @@ function resolveCategoryStockDelta(input: CreateCategoryMovementInput) {
 }
 
 export async function listStockCategories(): Promise<StockCategory[]> {
-  const snapshot = await getDocs(collection(db, 'stock_categories'))
+  const snapshot = await getDocs(tenantCollectionRef('stock_categories'))
   return snapshot.docs
     .map((item) => mapCategory(item.id, item.data()))
     .filter((category) => category.active)
@@ -65,14 +69,14 @@ export async function listStockCategories(): Promise<StockCategory[]> {
 }
 
 export async function listAllStockCategories(): Promise<StockCategory[]> {
-  const snapshot = await getDocs(collection(db, 'stock_categories'))
+  const snapshot = await getDocs(tenantCollectionRef('stock_categories'))
   return snapshot.docs
     .map((item) => mapCategory(item.id, item.data()))
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
 export async function getStockCategoryById(id: string): Promise<StockCategory | null> {
-  const snapshot = await getDoc(doc(db, 'stock_categories', id))
+  const snapshot = await getDoc(tenantDocumentRef('stock_categories', id))
   if (!snapshot.exists()) return null
   return mapCategory(snapshot.id, snapshot.data())
 }
@@ -82,14 +86,15 @@ export async function createStockCategory(input: StockCategoryFormInput, userId:
     throw new Error('El nombre de la categoría es obligatorio.')
   }
 
-  if (input.stock < 0 || input.minStock < 0) {
+  if (input.stock < 0 || input.minStock < 0 || input.costPrice < 0) {
     throw new Error('El stock no puede ser negativo.')
   }
 
-  const ref = doc(collection(db, 'stock_categories'))
+  const ref = doc(tenantCollectionRef('stock_categories'))
   await setDoc(ref, {
     name: input.name.trim(),
     unitLabel: input.unitLabel || 'kg',
+    costPrice: input.costPrice,
     stock: input.stock,
     minStock: input.minStock,
     active: true,
@@ -106,20 +111,22 @@ export async function updateStockCategory(id: string, input: StockCategoryFormIn
     throw new Error('El nombre de la categoría es obligatorio.')
   }
 
-  if (input.minStock < 0) {
-    throw new Error('El stock mínimo no puede ser negativo.')
+  if (input.stock < 0 || input.minStock < 0 || input.costPrice < 0) {
+    throw new Error('Los valores numéricos no pueden ser negativos.')
   }
 
-  await updateDoc(doc(db, 'stock_categories', id), {
+  await updateDoc(tenantDocumentRef('stock_categories', id), {
     name: input.name.trim(),
     unitLabel: input.unitLabel || 'kg',
+    costPrice: input.costPrice,
+    stock: input.stock,
     minStock: input.minStock,
     updatedAt: serverTimestamp(),
   })
 }
 
 export async function setStockCategoryActive(id: string, active: boolean) {
-  await updateDoc(doc(db, 'stock_categories', id), {
+  await updateDoc(tenantDocumentRef('stock_categories', id), {
     active,
     updatedAt: serverTimestamp(),
   })
@@ -144,7 +151,7 @@ export async function createCategoryMovement(
   }
 
   const batch = writeBatch(db)
-  const movementRef = doc(collection(db, 'inventory_movements'))
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
 
   batch.set(movementRef, {
     productId: null,
@@ -160,7 +167,59 @@ export async function createCategoryMovement(
     createdByName: userName,
   })
 
-  batch.update(doc(db, 'stock_categories', category.id), {
+  batch.update(tenantDocumentRef('stock_categories', category.id), {
+    stock: increment(stockDelta),
+    updatedAt: serverTimestamp(),
+  })
+
+  await batch.commit()
+  return movementRef.id
+}
+
+export async function createCategoryLoss(
+  input: CreateCategoryLossInput,
+  userId: string,
+  userName: string,
+) {
+  if (input.quantity <= 0) {
+    throw new Error('La cantidad perdida debe ser mayor a cero.')
+  }
+
+  const category = await getStockCategoryById(input.stockCategoryId)
+  if (!category) {
+    throw new Error('Categoría no encontrada.')
+  }
+
+  const stockDelta = -input.quantity
+  if (category.stock + stockDelta < 0) {
+    throw new Error(
+      `Stock insuficiente en ${category.name}. Disponible: ${category.stock} ${category.unitLabel}.`,
+    )
+  }
+
+  const unitCost = roundMoney(category.costPrice)
+  const lineCost = computeWasteLineCost(stockDelta, unitCost)
+  const batch = writeBatch(db)
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
+
+  batch.set(movementRef, {
+    productId: null,
+    stockCategoryId: category.id,
+    productName: category.name,
+    type: 'waste',
+    quantity: stockDelta,
+    unitCost,
+    lineCost,
+    wasteReason: 'other',
+    notes: input.notes?.trim() || 'Pérdida registrada desde categoría',
+    referenceType: 'category-loss',
+    referenceId: category.id,
+    createdAt: serverTimestamp(),
+    createdBy: userId,
+    createdByName: userName,
+  })
+
+  batch.update(tenantDocumentRef('stock_categories', category.id), {
     stock: increment(stockDelta),
     updatedAt: serverTimestamp(),
   })

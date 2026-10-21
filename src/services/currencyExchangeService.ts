@@ -1,5 +1,4 @@
 import {
-  collection,
   deleteDoc,
   doc,
   getDocs,
@@ -7,7 +6,7 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type { CreateCurrencyExchangeInput, CurrencyExchange } from '../types/currencyExchange'
 import type { ExchangeRate, ExchangeRateFormInput } from '../types/finance'
 
@@ -100,14 +99,14 @@ function mapCurrencyExchange(id: string, data: Record<string, unknown>): Currenc
 }
 
 export async function listCurrencyExchanges(): Promise<CurrencyExchange[]> {
-  const snapshot = await getDocs(collection(db, 'currency_exchanges'))
+  const snapshot = await getDocs(tenantCollectionRef('currency_exchanges'))
   return snapshot.docs
     .map((item) => mapCurrencyExchange(item.id, item.data()))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 }
 
 export async function listLatestCurrencyExchangeRates(): Promise<ExchangeRate[]> {
-  const snapshot = await getDocs(collection(db, 'currency_exchange_rates'))
+  const snapshot = await getDocs(tenantCollectionRef('currency_exchange_rates'))
   const rates = new Map<string, ExchangeRate>()
 
   snapshot.docs.forEach((item) => {
@@ -137,7 +136,7 @@ export async function createCurrencyExchangeRate(
     throw new Error('Ya existe una tasa para este par. Edítala desde la lista.')
   }
 
-  const ref = doc(collection(db, 'currency_exchange_rates'))
+  const ref = doc(tenantCollectionRef('currency_exchange_rates'))
   await setDoc(ref, {
     fromCurrency,
     toCurrency,
@@ -166,7 +165,7 @@ export async function updateCurrencyExchangeRate(id: string, input: ExchangeRate
     throw new Error('Ya existe otra tasa con este par de monedas.')
   }
 
-  await updateDoc(doc(db, 'currency_exchange_rates', id), {
+  await updateDoc(tenantDocumentRef('currency_exchange_rates', id), {
     fromCurrency,
     toCurrency,
     fromAmount: input.fromAmount,
@@ -179,7 +178,7 @@ export async function updateCurrencyExchangeRate(id: string, input: ExchangeRate
 }
 
 export async function deleteCurrencyExchangeRate(id: string) {
-  await deleteDoc(doc(db, 'currency_exchange_rates', id))
+  await deleteDoc(tenantDocumentRef('currency_exchange_rates', id))
 }
 
 export async function createCurrencyExchange(
@@ -206,7 +205,7 @@ export async function createCurrencyExchange(
     throw new Error('Indica la forma de pago de la entrada y de la salida.')
   }
 
-  const ref = doc(collection(db, 'currency_exchanges'))
+  const ref = doc(tenantCollectionRef('currency_exchanges'))
   await setDoc(ref, {
     cashInCurrency,
     cashInAmount: input.cashInAmount,
@@ -238,5 +237,5 @@ export async function createCurrencyExchange(
 }
 
 export async function deleteCurrencyExchange(id: string) {
-  await deleteDoc(doc(db, 'currency_exchanges', id))
+  await deleteDoc(tenantDocumentRef('currency_exchanges', id))
 }

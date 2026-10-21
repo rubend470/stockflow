@@ -1,4 +1,5 @@
 import qz from 'qz-tray'
+import { auth } from '../lib/firebase'
 import type { AppSettings } from '../types/settings'
 import type { CartItem, SalePaymentInput, SaleResult } from '../types/sale'
 import { formatDecimalColombian } from '../utils/formatMoney'
@@ -11,9 +12,53 @@ const BOLD_ON = '\x1B\x45\x01'
 const BOLD_OFF = '\x1B\x45\x00'
 const FEED_AND_CUT = '\n\n\n\x1D\x56\x00'
 const TICKET_WIDTH = 32
+const TICKET_BUSINESS_NAME = "PolloRes Miller's"
+const QZ_CERTIFICATE_PATH = '/qz/digital-certificate.txt'
+const QZ_SIGNING_URL =
+  import.meta.env.VITE_QZ_SIGNING_URL ||
+  'https://stockflow-qz-signing.pollores-millers-stockflow.workers.dev'
+
+qz.security.setSignatureAlgorithm('SHA512')
+qz.security.setCertificatePromise(async () => {
+  const response = await fetch(QZ_CERTIFICATE_PATH, { cache: 'no-store' })
+  if (!response.ok) {
+    throw new Error('No se pudo cargar el certificado de QZ Tray.')
+  }
+
+  return response.text()
+}, { rejectOnFailure: true })
+qz.security.setSignaturePromise(async (dataToSign) => {
+  const user = auth.currentUser
+  if (!user) {
+    throw new Error('Debes iniciar sesión para imprimir o abrir la gaveta.')
+  }
+  if (!QZ_SIGNING_URL) {
+    throw new Error('El servicio de firma de QZ Tray no está configurado.')
+  }
+
+  const idToken = await user.getIdToken()
+  const response = await fetch(QZ_SIGNING_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ request: dataToSign }),
+  })
+  const result = await response.json() as {
+    signature?: string
+    error?: string
+  }
+
+  if (!response.ok || !result.signature) {
+    throw new Error(result.error || 'El servicio de firma de QZ Tray devolvió una respuesta inválida.')
+  }
+
+  return result.signature
+})
 
 interface PrintSaleTicketInput {
-  sale: SaleResult
+  sale: SaleResult & { createdAt?: string }
   items: CartItem[]
   payments: SalePaymentInput[]
   settings: AppSettings
@@ -99,6 +144,14 @@ function money(amount: number, currencyCode: string) {
   return `${currencyCode} ${formatDecimalColombian(amount)}`
 }
 
+function getTicketItemQuantityLabel(item: CartItem) {
+  if (item.saleMode === 'bundle' && item.unitsPerBundle) {
+    return `${formatDecimalColombian(item.quantity)} al mayor (${formatDecimalColombian(item.stockQuantity)} ${item.unitLabel})`
+  }
+
+  return `${formatDecimalColombian(item.quantity)} ${item.unitLabel}`
+}
+
 function twoColumns(left: string, right: string) {
   const safeRight = cleanText(right).slice(0, 14)
   const safeLeft = cleanText(left).slice(0, TICKET_WIDTH - safeRight.length - 1)
@@ -108,15 +161,14 @@ function twoColumns(left: string, right: string) {
 
 function buildTicket(input: PrintSaleTicketInput) {
   const { sale, items, payments, settings, cashierName, baseCurrencyCode } = input
-  const businessName = settings.businessName || 'StockFlow'
+  const businessName = TICKET_BUSINESS_NAME
   const createdAt = new Intl.DateTimeFormat('es-CO', {
     dateStyle: 'short',
     timeStyle: 'short',
-  }).format(new Date())
+  }).format(sale.createdAt ? new Date(sale.createdAt) : new Date())
 
   const rows: string[] = [
     INIT_PRINTER,
-    CASH_DRAWER_PULSE,
     ALIGN_CENTER,
     BOLD_ON,
     center(businessName),
@@ -137,9 +189,10 @@ function buildTicket(input: PrintSaleTicketInput) {
 
   items.forEach((item) => {
     rows.push(line(item.productName))
+    if (item.offerName) rows.push(line(item.offerType === 'combo' ? `Combo: ${item.offerName}` : `Promo: ${item.offerName}`))
     rows.push(
       twoColumns(
-        `${formatDecimalColombian(item.quantity)} ${item.unitLabel} x ${money(item.unitPrice, baseCurrencyCode)}`,
+        `${getTicketItemQuantityLabel(item)} x ${money(item.unitPrice, baseCurrencyCode)}`,
         money(item.lineRevenue, baseCurrencyCode),
       ),
     )
@@ -175,19 +228,20 @@ function escapeHtml(value: string) {
 
 function buildTicketHtml(input: PrintSaleTicketInput) {
   const { sale, items, payments, settings, cashierName, baseCurrencyCode } = input
-  const businessName = settings.businessName || 'StockFlow'
+  const businessName = TICKET_BUSINESS_NAME
   const createdAt = new Intl.DateTimeFormat('es-CO', {
     dateStyle: 'short',
     timeStyle: 'short',
-  }).format(new Date())
+  }).format(sale.createdAt ? new Date(sale.createdAt) : new Date())
 
   const itemRows = items
     .map(
       (item) => `
         <div class="item">
           <strong>${escapeHtml(item.productName)}</strong>
+          ${item.offerName ? `<em>${escapeHtml(item.offerType === 'combo' ? `Combo: ${item.offerName}` : `Promo: ${item.offerName}`)}</em>` : ''}
           <div>
-            <span>${formatDecimalColombian(item.quantity)} ${escapeHtml(item.unitLabel)} x ${escapeHtml(money(item.unitPrice, baseCurrencyCode))}</span>
+            <span>${escapeHtml(getTicketItemQuantityLabel(item))} x ${escapeHtml(money(item.unitPrice, baseCurrencyCode))}</span>
             <b>${escapeHtml(money(item.lineRevenue, baseCurrencyCode))}</b>
           </div>
         </div>

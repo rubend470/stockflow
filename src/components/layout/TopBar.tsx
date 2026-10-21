@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
+import { listBusinessesById, switchCurrentBusiness } from '../../services/businessService'
+import type { Business } from '../../types/business'
 import { roleLabels } from '../../utils/roles'
 import { ThemeToggle } from './ThemeToggle'
 
@@ -9,7 +12,29 @@ interface TopBarProps {
 }
 
 export function TopBar({ title, subtitle, onMenuClick }: TopBarProps) {
-  const { user, logout } = useAuth()
+  const { user, logout, refreshUser } = useAuth()
+  const [businesses, setBusinesses] = useState<Business[]>([])
+  const [switchingBusiness, setSwitchingBusiness] = useState(false)
+
+  useEffect(() => {
+    if (!user?.businessIds?.length) return
+
+    void listBusinessesById(user.businessIds).then(setBusinesses).catch(() => setBusinesses([]))
+  }, [user?.businessIds])
+
+  const visibleBusinesses = user?.businessIds?.length ? businesses : []
+
+  async function handleBusinessChange(businessId: string) {
+    if (!user || businessId === user.currentBusinessId) return
+    setSwitchingBusiness(true)
+    try {
+      await switchCurrentBusiness(user.uid, businessId)
+      await refreshUser()
+      window.location.reload()
+    } finally {
+      setSwitchingBusiness(false)
+    }
+  }
 
   return (
     <header className="topbar">
@@ -26,6 +51,21 @@ export function TopBar({ title, subtitle, onMenuClick }: TopBarProps) {
       </div>
 
       <div className="topbar-right">
+        {visibleBusinesses.length > 0 && (
+          <label className="topbar-business">
+            <span>Empresa</span>
+            <select
+              value={user?.currentBusinessId ?? visibleBusinesses[0]?.id ?? ''}
+              onChange={(event) => void handleBusinessChange(event.target.value)}
+              disabled={switchingBusiness}
+              aria-label="Empresa activa"
+            >
+              {visibleBusinesses.filter((business) => business.status === 'active').map((business) => (
+                <option key={business.id} value={business.id}>{business.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <ThemeToggle />
         <div className="topbar-user">
           <div>

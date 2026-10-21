@@ -1,13 +1,11 @@
 import {
   addDoc,
-  collection,
   deleteDoc,
-  doc,
   getDocs,
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import { listSales } from './saleService'
 import type { Expense, ExpenseCategory, ExpenseFormInput } from '../types/expense'
 import { expenseCategories } from '../types/expense'
@@ -107,7 +105,7 @@ function filterSalesByDateRange(sales: Sale[], startDate: string, endDate: strin
 }
 
 export async function listExpenses(): Promise<Expense[]> {
-  const snapshot = await getDocs(collection(db, 'expenses'))
+  const snapshot = await getDocs(tenantCollectionRef('expenses'))
   return snapshot.docs
     .map((item) => mapExpense(item.id, item.data()))
     .sort((a, b) => b.expenseDate.localeCompare(a.expenseDate) || b.createdAt.localeCompare(a.createdAt))
@@ -119,7 +117,7 @@ export async function createExpense(
 ) {
   const { description, amount } = assertValidExpenseInput(input)
 
-  await addDoc(collection(db, 'expenses'), {
+  await addDoc(tenantCollectionRef('expenses'), {
     description,
     category: input.category,
     amountInBase: roundMoney(amount),
@@ -135,7 +133,7 @@ export async function createExpense(
 export async function updateExpense(id: string, input: ExpenseFormInput) {
   const { description, amount } = assertValidExpenseInput(input)
 
-  await updateDoc(doc(db, 'expenses', id), {
+  await updateDoc(tenantDocumentRef('expenses', id), {
     description,
     category: input.category,
     amountInBase: roundMoney(amount),
@@ -146,7 +144,7 @@ export async function updateExpense(id: string, input: ExpenseFormInput) {
 }
 
 export async function deleteExpense(id: string) {
-  await deleteDoc(doc(db, 'expenses', id))
+  await deleteDoc(tenantDocumentRef('expenses', id))
 }
 
 export async function getExpensePeriodSummary(

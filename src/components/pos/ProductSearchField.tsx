@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from 'react'
 import type { Product } from '../../types/product'
 import { barcodeMatches, normalizeBarcode } from '../../utils/barcode'
 import { formatProductPrices } from '../../utils/productUnits'
+import { BarcodeScannerButton } from '../ui/BarcodeScannerButton'
 
 interface ProductSearchFieldProps {
   value: string
@@ -12,14 +13,18 @@ interface ProductSearchFieldProps {
   onSelectProduct: (product: Product) => void
 }
 
-export function ProductSearchField({
+export interface ProductSearchFieldHandle {
+  focus: () => void
+}
+
+export const ProductSearchField = forwardRef<ProductSearchFieldHandle, ProductSearchFieldProps>(function ProductSearchField({
   value,
   products,
   loading,
   onChange,
   onSubmit,
   onSelectProduct,
-}: ProductSearchFieldProps) {
+}, ref) {
   const inputRef = useRef<HTMLInputElement>(null)
   const lastAutoSelectedBarcodeRef = useRef('')
   const query = value.trim().toLowerCase()
@@ -47,11 +52,20 @@ export function ProductSearchField({
     inputRef.current?.focus()
   }, [])
 
+  useImperativeHandle(ref, () => ({
+    focus: () => inputRef.current?.focus(),
+  }), [])
+
   const selectProduct = useCallback((product: Product) => {
     onChange('')
     onSelectProduct(product)
     window.setTimeout(() => inputRef.current?.focus(), 0)
   }, [onChange, onSelectProduct])
+
+  const handleCameraDetected = useCallback((barcode: string) => {
+    onChange(normalizeBarcode(barcode))
+    window.setTimeout(() => inputRef.current?.focus(), 0)
+  }, [onChange])
 
   useEffect(() => {
     if (!exactBarcodeProduct || exactBarcodeProduct.stock <= 0) return
@@ -107,6 +121,12 @@ export function ProductSearchField({
           />
         </div>
 
+        <BarcodeScannerButton
+          label="Cámara"
+          className="pos-barcode-scan-button"
+          onDetected={handleCameraDetected}
+        />
+
         <button type="button" className="pos-btn pos-btn-primary" onClick={onSubmit} disabled={loading}>
           Agregar
         </button>
@@ -143,4 +163,4 @@ export function ProductSearchField({
       </p>
     </div>
   )
-}
+})

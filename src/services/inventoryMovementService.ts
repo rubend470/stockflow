@@ -1,12 +1,13 @@
 import {
-  collection,
   doc,
+  getDoc,
   getDocs,
   increment,
   serverTimestamp,
   writeBatch,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import { getProductById, listAllProducts } from './productService'
 import { getStockCategoryById } from './stockCategoryService'
 import type {
@@ -66,7 +67,7 @@ function resolveStockDelta(input: CreateMovementInput) {
 }
 
 export async function listMovements(limit = 200): Promise<InventoryMovement[]> {
-  const snapshot = await getDocs(collection(db, 'inventory_movements'))
+  const snapshot = await getDocs(tenantCollectionRef('inventory_movements'))
 
   return snapshot.docs
     .map((item) => mapMovement(item.id, item.data()))
@@ -77,6 +78,44 @@ export async function listMovements(limit = 200): Promise<InventoryMovement[]> {
 export async function listWasteMovements(limit = 200): Promise<InventoryMovement[]> {
   const movements = await listMovements(limit * 2)
   return movements.filter((movement) => movement.type === 'waste').slice(0, limit)
+}
+
+export async function deleteWasteMovement(id: string) {
+  const movementRef = tenantDocumentRef('inventory_movements', id)
+  const snapshot = await getDoc(movementRef)
+
+  if (!snapshot.exists()) {
+    throw new Error('La merma no existe o ya fue eliminada.')
+  }
+
+  const movement = mapMovement(snapshot.id, snapshot.data())
+  if (movement.type !== 'waste') {
+    throw new Error('Solo se pueden eliminar movimientos de merma o pérdida.')
+  }
+
+  const restoreQuantity = Math.abs(movement.quantity)
+  if (restoreQuantity <= 0) {
+    throw new Error('La cantidad de la merma no es válida.')
+  }
+
+  const batch = writeBatch(db)
+
+  if (movement.stockCategoryId) {
+    batch.update(tenantDocumentRef('stock_categories', movement.stockCategoryId), {
+      stock: increment(restoreQuantity),
+      updatedAt: serverTimestamp(),
+    })
+  } else if (movement.productId) {
+    batch.update(tenantDocumentRef('products', movement.productId), {
+      stock: increment(restoreQuantity),
+      updatedAt: serverTimestamp(),
+    })
+  } else {
+    throw new Error('La merma no tiene producto ni categoría asociada.')
+  }
+
+  batch.delete(movementRef)
+  await batch.commit()
 }
 
 function buildWasteNotes(reason: WasteReason, notes?: string) {
@@ -154,7 +193,7 @@ export async function createWaste(input: CreateWasteInput, userId: string, userN
   }
 
   const batch = writeBatch(db)
-  const movementRef = doc(collection(db, 'inventory_movements'))
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
 
   batch.set(movementRef, {
     productId: movementProductId,
@@ -173,7 +212,7 @@ export async function createWaste(input: CreateWasteInput, userId: string, userN
     createdByName: userName,
   })
 
-  batch.update(doc(db, 'stock_categories', category.id), {
+  batch.update(tenantDocumentRef('stock_categories', category.id), {
     stock: increment(stockDelta),
     updatedAt: serverTimestamp(),
   })
@@ -200,7 +239,7 @@ export async function createMovement(
   }
 
   const batch = writeBatch(db)
-  const movementRef = doc(collection(db, 'inventory_movements'))
+  const movementRef = doc(tenantCollectionRef('inventory_movements'))
   const unitCost = roundMoney(input.unitCost ?? product.costPrice)
   const lineCost =
     input.type === 'waste' ? computeWasteLineCost(stockDelta, unitCost) : undefined
@@ -221,7 +260,7 @@ export async function createMovement(
     createdByName: userName,
   })
 
-  batch.update(doc(db, 'products', product.id), {
+  batch.update(tenantDocumentRef('products', product.id), {
     stock: increment(stockDelta),
     updatedAt: serverTimestamp(),
   })

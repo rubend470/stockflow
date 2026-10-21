@@ -6,7 +6,12 @@ import { AnimatedPanel, AnimatedTableRow } from '../../../components/ui/motion'
 import { TablePagination } from '../../../components/ui/TablePagination'
 import { usePagination } from '../../../hooks/usePagination'
 import { useAuth } from '../../../context/AuthContext'
-import { createWaste, listWasteMovements } from '../../../services/inventoryMovementService'
+import { useConfirm } from '../../../context/ConfirmContext'
+import {
+  createWaste,
+  deleteWasteMovement,
+  listWasteMovements,
+} from '../../../services/inventoryMovementService'
 import { listAllProducts } from '../../../services/productService'
 import { listStockCategories } from '../../../services/stockCategoryService'
 import type { CreateWasteInput, InventoryMovement } from '../../../types/inventory'
@@ -32,6 +37,7 @@ function formatQuantity(value: number) {
 
 export function WastePage() {
   const { user } = useAuth()
+  const confirm = useConfirm()
   const [movements, setMovements] = useState<InventoryMovement[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<StockCategory[]>([])
@@ -41,9 +47,10 @@ export function WastePage() {
   const [message, setMessage] = useState('')
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
+  const [deletingId, setDeletingId] = useState('')
 
   const canAccess = userHasMenuPermission(user, 'waste')
-  const canManage = user?.role === 'super_admin' || user?.role === 'admin'
+  const canManage = canAccess
 
   useEffect(() => {
     if (canAccess) loadData()
@@ -114,6 +121,33 @@ export function WastePage() {
       setError(err instanceof Error ? err.message : 'No se pudo registrar la merma.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function handleDelete(movement: InventoryMovement) {
+    if (!canManage) return
+
+    const confirmed = await confirm({
+      title: 'Eliminar merma',
+      message: `¿Eliminar la merma de ${movement.productName}? Se devolverán ${formatQuantity(movement.quantity)} al stock correspondiente.`,
+      confirmLabel: 'Sí, eliminar',
+      cancelLabel: 'Cancelar',
+      tone: 'danger',
+    })
+    if (!confirmed) return
+
+    setDeletingId(movement.id)
+    setError('')
+    setMessage('')
+
+    try {
+      await deleteWasteMovement(movement.id)
+      setMessage('Merma eliminada y stock restaurado.')
+      await loadData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar la merma.')
+    } finally {
+      setDeletingId('')
     }
   }
 
@@ -206,6 +240,7 @@ export function WastePage() {
                   <th>Motivo</th>
                   <th>Usuario</th>
                   <th>Notas</th>
+                  {canManage && <th className="table-actions-col">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
@@ -230,6 +265,20 @@ export function WastePage() {
                     </td>
                     <td>{movement.createdByName ?? '—'}</td>
                     <td>{movement.notes || '—'}</td>
+                    {canManage && (
+                      <td className="table-actions-col">
+                        <div className="table-action-group">
+                          <button
+                            type="button"
+                            className="table-action table-action--danger"
+                            onClick={() => handleDelete(movement)}
+                            disabled={deletingId === movement.id}
+                          >
+                            {deletingId === movement.id ? 'Borrando...' : 'Borrar'}
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </AnimatedTableRow>
                 ))}
               </tbody>

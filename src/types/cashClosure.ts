@@ -1,4 +1,5 @@
 import type { CurrencyCashTotal } from '../utils/salePayments'
+import type { CashMovementType } from './cashMovement'
 
 export interface CashClosureSaleLine {
   saleId: string
@@ -33,6 +34,20 @@ export interface CashClosurePaymentLine {
   amountInBase: number
   clientName?: string
   isCredit?: boolean
+}
+
+export interface CashClosureMovementLine {
+  id: string
+  type: CashMovementType
+  description: string
+  createdAt: string
+  currencyCode: string
+  amount: number
+  amountInBase: number
+  methodName: string
+  reference?: string
+  notes?: string
+  createdByName: string
 }
 
 export interface CashClosureExchangeLine {
@@ -74,9 +89,13 @@ export interface CashClosureReport {
   loanRepaymentsInBase: number
   exchangesCount: number
   exchangesVolumeInBase: number
+  openingCashInBase: number
+  extraCashInBase: number
+  extraCashOutInBase: number
   totalCashInBase: number
   sales: CashClosureSaleLine[]
   payments: CashClosurePaymentLine[]
+  cashMovements: CashClosureMovementLine[]
   loansGiven: CashClosureLoanLine[]
   exchanges: CashClosureExchangeLine[]
   cashByCurrency: CurrencyCashTotal[]

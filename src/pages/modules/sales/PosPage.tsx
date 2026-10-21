@@ -8,12 +8,14 @@ import {
 import { PosSection } from '../../../components/pos/PosSection'
 import { PaymentSection } from '../../../components/pos/PaymentSection'
 import { ProductSearchField } from '../../../components/pos/ProductSearchField'
+import type { ProductSearchFieldHandle } from '../../../components/pos/ProductSearchField'
 import { QuickSaleItemModal } from '../../../components/pos/QuickSaleItemModal'
 import { SaleProcessingOverlay } from '../../../components/pos/SaleProcessingOverlay'
 import { SaleQuantityModal } from '../../../components/pos/SaleQuantityModal'
 import { DEFAULT_BASE_CURRENCY_CODE } from '../../../constants/currency'
 import { useAuth } from '../../../context/AuthContext'
 import { useConfirm } from '../../../context/ConfirmContext'
+import { getActiveBusinessId } from '../../../lib/tenantScope'
 import {
   buildExchangeRateSnapshot,
   convertFromBaseForPayment,
@@ -29,6 +31,8 @@ import {
 } from '../../../services/financeService'
 import { findOrCreateClientForCredit, getFrequentCreditClients, listClients } from '../../../services/clientService'
 import { findProductByBarcode, listProducts, seedSampleProducts } from '../../../services/productService'
+import { listActiveSalesOffers } from '../../../services/offerService'
+import { listKeyboardShortcuts } from '../../../services/keyboardShortcutService'
 import {
   enqueueOfflineSale,
   isNetworkError,
@@ -38,7 +42,6 @@ import {
   syncOfflineQueuedSales,
   type OfflineQueuedSale,
 } from '../../../services/posOfflineService'
-import { getQzFriendlyError, openCashDrawer, printSaleTicket } from '../../../services/qzService'
 import { listStockCategories } from '../../../services/stockCategoryService'
 import { getAppSettings } from '../../../services/settingsService'
 import type { StockCategory } from '../../../types/stockCategory'
@@ -46,6 +49,8 @@ import { enrichProductWithCategoryStock, enrichProductsWithCategoryStock, getCat
 import { createSale } from '../../../services/saleService'
 import type { Client } from '../../../types/client'
 import { pickDefaultPaymentMethod, type Currency, type ExchangeRate, type PaymentMethod } from '../../../types/finance'
+import type { SalesOffer } from '../../../types/offer'
+import type { KeyboardShortcut, KeyboardShortcutAction } from '../../../types/keyboardShortcut'
 import type { Product, SaleMode } from '../../../types/product'
 import type { CartItem, CreateSaleInput, SalePaymentInput, SaleResult } from '../../../types/sale'
 import type { AppSettings } from '../../../types/settings'
@@ -57,6 +62,7 @@ import {
   getCartTotals,
   removeCartItem,
   updateCartItemQuantity,
+  applyPromotionsToCart,
 } from '../../../utils/cart'
 import {
   formatBaseMoney,
@@ -69,7 +75,8 @@ import {
   getDefaultQuantity,
   getDefaultSaleMode,
   getQuantityStep,
-  needsSaleQuantityModal,
+  productAllowsAmountEntry,
+  productAllowsBundle,
 } from '../../../utils/productUnits'
 import { barcodeMatches, normalizeBarcode } from '../../../utils/barcode'
 import { userCanViewProfit, userHasAnyMenuPermission } from '../../../utils/menuPermissions'
@@ -93,6 +100,7 @@ interface OpenSaleDraft {
   selectedCurrencyCode: string
   selectedMethodId: string
   paymentAmount: string
+  cashReceivedAmount: string
   paymentReference: string
   creditEnabled: boolean
   creditAmount: string
@@ -108,9 +116,14 @@ interface StoredOpenSaleDrafts {
 }
 
 const OPEN_SALE_DRAFTS_VERSION = 1
+const emptyClientList: Client[] = []
 
 function openSaleDraftsStorageKey(userId: string) {
-  return `stockflow:open-sales:v${OPEN_SALE_DRAFTS_VERSION}:${userId}`
+  return `stockflow:open-sales:v${OPEN_SALE_DRAFTS_VERSION}:${openSaleDraftsOwnerKey(userId)}`
+}
+
+function openSaleDraftsOwnerKey(userId: string) {
+  return `${userId}:${getActiveBusinessId() ?? 'legacy'}`
 }
 
 function normalizeStoredDrafts(value: unknown): StoredOpenSaleDrafts | null {
@@ -169,11 +182,38 @@ function formatOfflineCacheDate(value: string) {
   }).format(new Date(value))
 }
 
+function paymentMethodAcceptsCurrency(method: PaymentMethod, currencyCode: string) {
+  return method.allowedCurrencies.length === 0 || method.allowedCurrencies.includes(currencyCode)
+}
+
+function isCashPaymentMethod(method?: PaymentMethod) {
+  if (!method) return false
+
+  const normalizedName = method.name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+  return method.code.toLowerCase().includes('cash') || normalizedName.includes('efectivo')
+}
+
+function pickPaymentMethodForCurrency(
+  methods: PaymentMethod[],
+  currencyCode: string,
+  currentMethodId?: string,
+) {
+  const eligible = methods.filter((method) => paymentMethodAcceptsCurrency(method, currencyCode))
+  const current = eligible.find((method) => method.id === currentMethodId)
+  return current ?? pickDefaultPaymentMethod(eligible) ?? eligible[0]
+}
+
 export function PosPage() {
   const { user } = useAuth()
   const confirm = useConfirm()
-  const postSaleResolveRef = useRef<((action: PostSaleHardwareAction) => void) | null>(null)
+  const searchFieldRef = useRef<ProductSearchFieldHandle>(null)
   const [products, setProducts] = useState<Product[]>([])
+  const [activeOffers, setActiveOffers] = useState<SalesOffer[]>([])
+  const [keyboardShortcuts, setKeyboardShortcuts] = useState<KeyboardShortcut[]>([])
   const [categories, setCategories] = useState<StockCategory[]>([])
   const categoryMap = useMemo(() => getCategoryMap(categories), [categories])
   const [currencies, setCurrencies] = useState<Currency[]>([])
@@ -185,12 +225,15 @@ export function PosPage() {
   const [selectedCurrencyCode, setSelectedCurrencyCode] = useState(DEFAULT_BASE_CURRENCY_CODE)
   const [selectedMethodId, setSelectedMethodId] = useState('')
   const [paymentAmount, setPaymentAmount] = useState('')
+  const [cashReceivedAmount, setCashReceivedAmount] = useState('')
   const [paymentReference, setPaymentReference] = useState('')
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null)
+  const [editingCartKey, setEditingCartKey] = useState<string | null>(null)
   const [pendingSaleMode, setPendingSaleMode] = useState<SaleMode>('retail')
   const [pendingEntryMode, setPendingEntryMode] = useState<'quantity' | 'amount'>('quantity')
   const [pendingQuantity, setPendingQuantity] = useState('1')
   const [pendingAmount, setPendingAmount] = useState('')
+  const [pendingUnitPrice, setPendingUnitPrice] = useState('')
   const [pendingError, setPendingError] = useState('')
   const [quickSaleOpen, setQuickSaleOpen] = useState(false)
   const [quickSaleName, setQuickSaleName] = useState('')
@@ -226,12 +269,37 @@ export function PosPage() {
   const baseCurrency = useMemo(() => getBaseCurrency(currencies), [currencies])
   const baseCurrencyCode = baseCurrency?.code ?? DEFAULT_BASE_CURRENCY_CODE
   const { subtotal } = useMemo(() => getCartTotals(cart), [cart])
+  const activeCombos = useMemo(
+    () => activeOffers.filter((offer) => offer.type === 'combo'),
+    [activeOffers],
+  )
   const totalPaid = useMemo(
     () => payments.reduce((sum, payment) => sum + payment.amountInBase, 0),
     [payments],
   )
   const remaining = Math.max(subtotal - totalPaid, 0)
-  const canConfirm = cart.length > 0 && (mixedPayment ? remaining <= 0.01 : true)
+  const selectedPaymentMethod = paymentMethods.find(
+    (method) => method.id === selectedMethodId && paymentMethodAcceptsCurrency(method, selectedCurrencyCode),
+  )
+  const isCashOnlyPayment =
+    !mixedPayment &&
+    !creditEnabled &&
+    isCashPaymentMethod(selectedPaymentMethod)
+  const cashReceived = parseMoneyInput(cashReceivedAmount)
+  const cashChargeAmount = parseMoneyInput(paymentAmount)
+  const cashChangeAmount =
+    isCashOnlyPayment && cashReceived > 0 && cashChargeAmount > 0
+      ? roundMoney(cashReceived - cashChargeAmount)
+      : null
+  const cashReceivedIsEnough =
+    !isCashOnlyPayment ||
+    !cashReceivedAmount.trim() ||
+    cashChangeAmount === null ||
+    cashChangeAmount >= -0.01
+  const canConfirm =
+    cart.length > 0 &&
+    (mixedPayment ? remaining <= 0.01 : true) &&
+    cashReceivedIsEnough
   const canCredit = cart.length > 0
   const frequentCreditClients = useMemo(() => getFrequentCreditClients(clients), [clients])
   const activeDraft = useMemo(
@@ -264,6 +332,7 @@ export function PosPage() {
       selectedCurrencyCode: getDefaultDraftCurrency(),
       selectedMethodId: getDefaultDraftMethod(),
       paymentAmount: '',
+      cashReceivedAmount: '',
       paymentReference: '',
       creditEnabled: false,
       creditAmount: '',
@@ -279,6 +348,7 @@ export function PosPage() {
     setSelectedCurrencyCode(draft.selectedCurrencyCode || getDefaultDraftCurrency())
     setSelectedMethodId(draft.selectedMethodId || getDefaultDraftMethod())
     setPaymentAmount(draft.paymentAmount)
+    setCashReceivedAmount(draft.cashReceivedAmount ?? '')
     setPaymentReference(draft.paymentReference)
     setCreditEnabled(draft.creditEnabled)
     setCreditAmount(draft.creditAmount)
@@ -296,6 +366,7 @@ export function PosPage() {
       selectedCurrencyCode,
       selectedMethodId,
       paymentAmount,
+      cashReceivedAmount,
       paymentReference,
       creditEnabled,
       creditAmount,
@@ -306,7 +377,7 @@ export function PosPage() {
   }
 
   function hydrateOpenSaleDrafts(currencyList: Currency[], methodList: PaymentMethod[]) {
-    if (!user || loadedDraftsUserRef.current === user.uid) return
+    if (!user || loadedDraftsUserRef.current === openSaleDraftsOwnerKey(user.uid)) return
 
     const base = getBaseCurrency(currencyList)?.code ?? DEFAULT_BASE_CURRENCY_CODE
     const methodId = pickDefaultPaymentMethod(methodList)?.id ?? ''
@@ -322,7 +393,7 @@ export function PosPage() {
       : drafts[0].id
     const draft = drafts.find((item) => item.id === activeId) ?? drafts[0]
 
-    loadedDraftsUserRef.current = user.uid
+    loadedDraftsUserRef.current = openSaleDraftsOwnerKey(user.uid)
     draftsReadyRef.current = true
     setOpenSaleDrafts(drafts)
     setActiveDraftId(activeId)
@@ -407,23 +478,28 @@ export function PosPage() {
     setError('')
 
     try {
-      if (userHasAnyMenuPermission(user, ['settings', 'add-product'])) {
-        await ensureFinanceDefaults(user.uid)
-        await seedSampleProducts(user.uid)
-      }
+      const shouldEnsureDefaults = userHasAnyMenuPermission(user, ['settings', 'add-product'])
+      const defaultsPromise = shouldEnsureDefaults
+        ? Promise.all([ensureFinanceDefaults(user.uid), seedSampleProducts(user.uid)])
+        : Promise.resolve()
 
-      const [productList, currencyList, methodList, rates, clientList, categoryList] = await Promise.all([
+      const coreDataPromise = Promise.all([
         listProducts(),
         listCurrencies(),
         listPaymentMethods(),
         listLatestExchangeRates(),
-        listClients(),
         listStockCategories(),
+        listActiveSalesOffers(),
       ])
 
-      setClients(clientList)
+      const [
+        ,
+        [productList, currencyList, methodList, rates, categoryList, offerList],
+      ] = await Promise.all([defaultsPromise, coreDataPromise])
+
       setCategories(categoryList)
       setProducts(enrichProductsWithCategoryStock(productList, categoryList))
+      setActiveOffers(offerList)
       setCurrencies(currencyList)
       setPaymentMethods(methodList)
       setExchangeRates(rates)
@@ -434,12 +510,33 @@ export function PosPage() {
         currencies: currencyList,
         paymentMethods: methodList,
         exchangeRates: rates,
-        clients: clientList,
+        clients: emptyClientList,
+        offers: offerList,
       })
 
-      if (loadedDraftsUserRef.current !== user.uid) {
+      if (loadedDraftsUserRef.current !== openSaleDraftsOwnerKey(user.uid)) {
         hydrateOpenSaleDrafts(currencyList, methodList)
       }
+
+      Promise.allSettled([listClients(), listKeyboardShortcuts()]).then(([clientsResult, shortcutsResult]) => {
+        const loadedClients =
+          clientsResult.status === 'fulfilled' ? clientsResult.value : emptyClientList
+        const loadedShortcuts =
+          shortcutsResult.status === 'fulfilled' ? shortcutsResult.value : []
+
+        if (clientsResult.status === 'fulfilled') setClients(loadedClients)
+        if (shortcutsResult.status === 'fulfilled') setKeyboardShortcuts(loadedShortcuts)
+
+        savePosOfflineCache(user.uid, {
+          products: productList,
+          categories: categoryList,
+          currencies: currencyList,
+          paymentMethods: methodList,
+          exchangeRates: rates,
+          clients: loadedClients,
+          offers: offerList,
+        })
+      })
     } catch {
       const cached = loadPosOfflineCache(user.uid)
       if (!cached) {
@@ -450,13 +547,14 @@ export function PosPage() {
       setClients(cached.clients)
       setCategories(cached.categories)
       setProducts(enrichProductsWithCategoryStock(cached.products, cached.categories))
+      setActiveOffers(cached.offers ?? [])
       setCurrencies(cached.currencies)
       setPaymentMethods(cached.paymentMethods)
       setExchangeRates(cached.exchangeRates)
       setOfflineMode(true)
       setError(`Modo offline: usando datos guardados del ${formatOfflineCacheDate(cached.savedAt)}.`)
 
-      if (loadedDraftsUserRef.current !== user.uid) {
+      if (loadedDraftsUserRef.current !== openSaleDraftsOwnerKey(user.uid)) {
         hydrateOpenSaleDrafts(cached.currencies, cached.paymentMethods)
       }
     } finally {
@@ -498,11 +596,73 @@ export function PosPage() {
   }, [user, isOnline, syncPendingOfflineSales])
 
   useEffect(() => {
+    setCart((current) => {
+      const priced = applyPromotionsToCart(current, activeOffers)
+      return JSON.stringify(priced) === JSON.stringify(current) ? current : priced
+    })
+  }, [activeOffers])
+
+  useEffect(() => {
+    function normalizeEvent(event: KeyboardEvent) {
+      const parts: string[] = []
+      if (event.ctrlKey || event.metaKey) parts.push('Ctrl')
+      if (event.altKey) parts.push('Alt')
+      if (event.shiftKey) parts.push('Shift')
+      const key = event.key === ' ' ? 'Space' : event.key.length === 1 ? event.key.toUpperCase() : event.key
+      if (!['Control', 'Meta', 'Alt', 'Shift'].includes(key)) parts.push(key)
+      return parts.join('+')
+    }
+
+    function shortcutFor(keys: string) {
+      return keyboardShortcuts.find((shortcut) => shortcut.active && shortcut.keys === keys)
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      const shortcut = shortcutFor(normalizeEvent(event))
+      if (!shortcut) return
+
+      event.preventDefault()
+      const actionMap: Record<KeyboardShortcutAction, () => void> = {
+        'focus-search': () => searchFieldRef.current?.focus(),
+        'new-sale': handleCreateOpenSaleDraft,
+        'quick-product': openQuickSaleModal,
+        'exact-payment': handlePayExactRemaining,
+        'add-mixed-payment': handleAddPayment,
+        'toggle-mixed-payment': () => handleMixedPaymentChange(!mixedPayment),
+        'remove-last-payment': () => {
+          setPayments((current) => current.slice(0, -1))
+        },
+        'clear-search': () => {
+          setSearchQuery('')
+          searchFieldRef.current?.focus()
+        },
+	        'clear-cart': () => {
+	          if (cart.length === 0) return
+	          setCart([])
+	          setPayments([])
+	          setPaymentAmount('')
+	          setCashReceivedAmount('')
+	        },
+        'sync-offline': () => {
+          void syncPendingOfflineSales()
+        },
+        'confirm-sale': () => {
+          void handleConfirmSale()
+        },
+      }
+      actionMap[shortcut.id]?.()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [keyboardShortcuts, cart, subtotal, remaining, paymentAmount, selectedMethodId, selectedCurrencyCode, payments, creditEnabled, creditAmount, mixedPayment])
+
+  useEffect(() => {
     loadedDraftsUserRef.current = ''
     draftsReadyRef.current = false
     setOpenSaleDrafts([])
     setActiveDraftId('')
-  }, [user?.uid])
+  }, [user?.uid, user?.currentBusinessId])
 
   useEffect(() => {
     if (!draftsReadyRef.current || !activeDraftId) return
@@ -518,13 +678,47 @@ export function PosPage() {
     payments,
     selectedCurrencyCode,
     selectedMethodId,
-    paymentAmount,
-    paymentReference,
+	    paymentAmount,
+	    cashReceivedAmount,
+	    paymentReference,
     creditEnabled,
     creditAmount,
     creditName,
     creditPhone,
     mixedPayment,
+	  ])
+
+  useEffect(() => {
+    if (!selectedCurrencyCode || paymentMethods.length === 0) return
+
+    const nextMethod = pickPaymentMethodForCurrency(
+      paymentMethods,
+      selectedCurrencyCode,
+      selectedMethodId,
+    )
+    const nextMethodId = nextMethod?.id ?? ''
+
+    if (selectedMethodId !== nextMethodId) {
+      setSelectedMethodId(nextMethodId)
+      setPaymentReference('')
+      setCashReceivedAmount('')
+      return
+    }
+
+    if (!isCashOnlyPayment && cashReceivedAmount) {
+      setCashReceivedAmount('')
+    }
+
+    if (!nextMethod?.requiresReference && paymentReference) {
+      setPaymentReference('')
+    }
+  }, [
+    selectedCurrencyCode,
+    selectedMethodId,
+    paymentMethods,
+    isCashOnlyPayment,
+    cashReceivedAmount,
+    paymentReference,
   ])
 
   useEffect(() => {
@@ -537,16 +731,21 @@ export function PosPage() {
     })
   }, [user, activeDraftId, openSaleDrafts])
 
-  useEffect(() => {
-    if (mixedPayment || subtotal <= 0) return
+	  useEffect(() => {
+	    if (subtotal <= 0) {
+	      setPaymentAmount('')
+	      setCashReceivedAmount('')
+	      return
+	    }
 
     const creditInBase = creditEnabled ? parseMoneyInput(creditAmount) ?? 0 : 0
     const pendingInBase = Math.max(subtotal - totalPaid - creditInBase, 0)
 
-    if (pendingInBase <= 0.01) {
-      setPaymentAmount('')
-      return
-    }
+	    if (pendingInBase <= 0.01) {
+	      setPaymentAmount('')
+	      setCashReceivedAmount('')
+	      return
+	    }
 
     try {
       const amountInCurrency = convertFromBaseForPayment(
@@ -556,9 +755,10 @@ export function PosPage() {
         exchangeRates,
       )
       setPaymentAmount(formatMoneyInputValue(amountInCurrency))
-    } catch {
-      setPaymentAmount('')
-    }
+	    } catch {
+	      setPaymentAmount('')
+	      setCashReceivedAmount('')
+	    }
   }, [
     mixedPayment,
     creditEnabled,
@@ -662,23 +862,41 @@ export function PosPage() {
     setCreditAmount(formatMoneyInputValue(target))
   }
 
-  function openSaleModal(product: Product) {
-    const saleMode = getDefaultSaleMode(product)
+  function openSaleModal(product: Product, saleMode = getDefaultSaleMode(product)) {
+    const unitPrice = saleMode === 'bundle' ? product.bundleSalePrice ?? 0 : product.salePrice
     setPendingProduct(product)
     setPendingSaleMode(saleMode)
-    setPendingEntryMode('quantity')
+    setPendingEntryMode(saleMode === 'retail' && productAllowsAmountEntry(product) ? 'amount' : 'quantity')
     setPendingQuantity(getDefaultQuantity(product, saleMode))
     setPendingAmount('')
+    setPendingUnitPrice(formatMoneyInputValue(unitPrice))
     setPendingError('')
   }
 
-  function addProductToCart(product: Product, quantity: number, saleMode: SaleMode, enteredAmount?: number) {
+  function handlePendingSaleModeChange(mode: SaleMode) {
+    if (!pendingProduct) return
+
+    const unitPrice = mode === 'bundle' ? pendingProduct.bundleSalePrice ?? 0 : pendingProduct.salePrice
+    setPendingSaleMode(mode)
+    setPendingUnitPrice(formatMoneyInputValue(unitPrice))
+  }
+
+  function addProductToCart(
+    product: Product,
+    quantity: number,
+    saleMode: SaleMode,
+    enteredAmount?: number,
+    customUnitPrice?: number,
+    replaceKey?: string,
+  ) {
     if (quantity <= 0) {
       setError('La cantidad debe ser mayor a cero.')
       return
     }
 
-    if (!canAddProduct(product, cart, quantity, saleMode)) {
+    const stockCart = replaceKey ? cart.filter((item) => item.key !== replaceKey) : cart
+
+    if (!canAddProduct(product, stockCart, quantity, saleMode)) {
       setError(`Stock insuficiente para ${product.name}.`)
       return
     }
@@ -687,30 +905,142 @@ export function PosPage() {
     setSuccess('')
     setSearchQuery('')
 
-    const existing = enteredAmount === undefined ? findMergeableCartItem(cart, product, saleMode) : undefined
+    const hasManualPrice =
+      customUnitPrice !== undefined &&
+      roundMoney(customUnitPrice) !== roundMoney(saleMode === 'bundle' ? product.bundleSalePrice ?? 0 : product.salePrice)
+    const existing =
+      !replaceKey && enteredAmount === undefined && !hasManualPrice
+        ? findMergeableCartItem(cart, product, saleMode)
+        : undefined
     if (existing) {
       const nextQty = Number((existing.quantity + quantity).toFixed(3))
       if (!canAddProduct(product, cart, quantity, saleMode)) {
         setError(`Stock insuficiente para ${product.name}.`)
         return
       }
-      setCart(updateCartItemQuantity(cart, existing.key, nextQty))
+      setCart(applyPromotionsToCart(updateCartItemQuantity(cart, existing.key, nextQty), activeOffers))
       return
     }
 
     const categoryName = product.stockCategoryId
       ? categoryMap.get(product.stockCategoryId)?.name
       : undefined
-    setCart((current) => [...current, buildCartItem(product, quantity, saleMode, categoryName, enteredAmount)])
+    const builtItem = buildCartItem(
+      product,
+      quantity,
+      saleMode,
+      categoryName,
+      enteredAmount,
+      undefined,
+      customUnitPrice,
+    )
+    const nextItem = replaceKey ? { ...builtItem, key: replaceKey } : builtItem
+
+    setCart((current) =>
+      applyPromotionsToCart(
+        replaceKey
+          ? current.map((item) => (item.key === replaceKey ? nextItem : item))
+          : [...current, nextItem],
+        activeOffers,
+      ),
+    )
   }
 
-  function handleProductSelect(product: Product) {
-    if (needsSaleQuantityModal(product)) {
-      openSaleModal(product)
+  function addComboToCart(offer: SalesOffer) {
+    const product = products.find((entry) => entry.id === offer.productId)
+    if (!product) {
+      setError('El producto del combo ya no está disponible.')
       return
     }
 
-    addProductToCart(product, 1, 'retail')
+    if (!canAddProduct(product, cart, offer.quantity, 'retail')) {
+      setError(`Stock insuficiente para el combo ${offer.name}.`)
+      return
+    }
+
+    const categoryName = product.stockCategoryId
+      ? categoryMap.get(product.stockCategoryId)?.name
+      : undefined
+
+    setCart((current) => [
+      ...current,
+      buildCartItem(product, offer.quantity, 'retail', categoryName, undefined, offer),
+    ])
+    setSearchQuery('')
+    setError('')
+    setSuccess(`Combo "${offer.name}" agregado al carrito.`)
+  }
+
+  function handleProductSelect(product: Product) {
+    const saleMode = getDefaultSaleMode(product)
+    if (saleMode === 'retail' && productAllowsAmountEntry(product)) {
+      setEditingCartKey(null)
+      openSaleModal(product, saleMode)
+      return
+    }
+
+    addProductToCart(product, Number(getDefaultQuantity(product, saleMode)), saleMode)
+  }
+
+  function handleEditCartItem(key: string) {
+    const item = cart.find((entry) => entry.key === key)
+    if (!item || item.isQuickItem || item.offerType === 'combo') return
+
+    const product = products.find((entry) => entry.id === item.productId)
+    if (!product) {
+      setError('No se pudo editar este producto porque ya no está disponible.')
+      return
+    }
+
+    setEditingCartKey(key)
+    openSaleModal(product, item.saleMode)
+    const shouldEditByAmount =
+      item.enteredAmount !== undefined ||
+      (item.saleMode === 'retail' && productAllowsAmountEntry(product))
+    setPendingEntryMode(shouldEditByAmount ? 'amount' : 'quantity')
+    setPendingQuantity(String(item.quantity))
+    setPendingAmount(shouldEditByAmount ? formatMoneyInputValue(item.enteredAmount ?? item.lineRevenue) : '')
+    setPendingUnitPrice(formatMoneyInputValue(item.unitPrice))
+    setPendingError('')
+  }
+
+  function handleToggleCartBundle(key: string, enabled: boolean) {
+    const item = cart.find((entry) => entry.key === key)
+    if (!item || item.isQuickItem || item.offerType === 'combo') return
+
+    const product = products.find((entry) => entry.id === item.productId)
+    if (!product || !productAllowsBundle(product)) {
+      setError('Este producto no tiene venta al mayor configurada.')
+      return
+    }
+
+    const nextSaleMode: SaleMode = enabled ? 'bundle' : 'retail'
+    if (item.saleMode === nextSaleMode) return
+
+    const nextQuantity = Number(getDefaultQuantity(product, nextSaleMode))
+    const stockCart = cart.filter((entry) => entry.key !== key)
+
+    if (!canAddProduct(product, stockCart, nextQuantity, nextSaleMode)) {
+      setError(`Stock insuficiente para ${product.name}.`)
+      return
+    }
+
+    const categoryName = product.stockCategoryId
+      ? categoryMap.get(product.stockCategoryId)?.name
+      : undefined
+    const nextItem = {
+      ...buildCartItem(product, nextQuantity, nextSaleMode, categoryName),
+      key,
+    }
+
+    setCart((current) =>
+      applyPromotionsToCart(
+        current.map((entry) => (entry.key === key ? nextItem : entry)),
+        activeOffers,
+      ),
+    )
+    setError('')
+    setSuccess('')
   }
 
   function openQuickSaleModal() {
@@ -800,7 +1130,7 @@ export function PosPage() {
       return
     }
 
-    setCart(updateCartItemQuantity(cart, key, nextQty))
+    setCart(applyPromotionsToCart(updateCartItemQuantity(cart, key, nextQty), activeOffers))
   }
 
   function handleDecrease(key: string) {
@@ -809,7 +1139,7 @@ export function PosPage() {
 
     const step = getQuantityStep(item.soldBy, item.saleMode)
     const nextQty = Number((item.quantity - step).toFixed(3))
-    setCart(updateCartItemQuantity(cart, key, nextQty))
+    setCart(applyPromotionsToCart(updateCartItemQuantity(cart, key, nextQty), activeOffers))
   }
 
   function handleRemove(key: string) {
@@ -1119,6 +1449,21 @@ export function PosPage() {
     setPayments((current) => current.filter((_, itemIndex) => itemIndex !== index))
   }
 
+  function handleCurrencyChange(code: string) {
+    const nextMethod = pickPaymentMethodForCurrency(paymentMethods, code, selectedMethodId)
+
+    setSelectedCurrencyCode(code)
+    setSelectedMethodId(nextMethod?.id ?? '')
+    setPaymentReference('')
+    setCashReceivedAmount('')
+  }
+
+  function handlePaymentMethodChange(id: string) {
+    setSelectedMethodId(id)
+    setPaymentReference('')
+    setCashReceivedAmount('')
+  }
+
   function buildCreateSaleInput(salePayments: SalePaymentInput[]): CreateSaleInput | null {
     if (!user) return null
     const creditClient = salePayments.find((payment) => payment.isCredit && payment.clientId)
@@ -1164,14 +1509,25 @@ export function PosPage() {
       lowStockAlertEnabled: true,
     }))
 
-    await requestPostSaleHardwareAction({
+    const postSaleRequestPayload = {
       sale: result,
       items: soldItems,
       payments: salePayments,
       settings,
       cashierName: user.name,
       baseCurrencyCode,
-    })
+    }
+
+    try {
+      const { openCashDrawer } = await import('../../../services/qzService')
+      await openCashDrawer()
+      setSuccess((current) => `${current} Gaveta abierta automáticamente.`)
+    } catch (err) {
+      const { getQzFriendlyError } = await import('../../../services/qzService')
+      setPostSaleError(getQzFriendlyError(err))
+    }
+
+    setPostSaleRequest(postSaleRequestPayload)
 
     completeActiveOpenSaleDraft()
     await loadPosData()
@@ -1200,22 +1556,10 @@ export function PosPage() {
     return true
   }
 
-  function requestPostSaleHardwareAction(request: PostSaleRequest) {
-    setPostSaleRequest(request)
-    setPostSaleBusy(false)
-    setPostSaleError('')
-
-    return new Promise<PostSaleHardwareAction>((resolve) => {
-      postSaleResolveRef.current = resolve
-    })
-  }
-
   function closePostSaleDialog(action: PostSaleHardwareAction) {
-    postSaleResolveRef.current?.(action)
-    postSaleResolveRef.current = null
     setPostSaleRequest(null)
     setPostSaleBusy(false)
-    setPostSaleError('')
+    if (action === 'skip') setPostSaleError('')
   }
 
   async function handlePostSaleAction(action: PostSaleHardwareAction) {
@@ -1230,35 +1574,27 @@ export function PosPage() {
     setPostSaleError('')
 
     try {
+      const { printSaleTicket } = await import('../../../services/qzService')
+
       if (action === 'print-ticket') {
         await printSaleTicket(postSaleRequest)
         setSuccess(`Ticket de venta ${postSaleRequest.sale.saleNumber} enviado a impresión.`)
-      } else {
-        await openCashDrawer()
-        setSuccess(`Gaveta abierta para la venta ${postSaleRequest.sale.saleNumber}.`)
       }
       closePostSaleDialog(action)
     } catch (err) {
+      const { getQzFriendlyError } = await import('../../../services/qzService')
       setPostSaleError(getQzFriendlyError(err))
       setPostSaleBusy(false)
     }
   }
 
-  async function handleConfirmSale() {
-    if (!user || !canConfirm) return
+	  async function handleConfirmSale() {
+	    if (!cashReceivedIsEnough) {
+	      setError('El efectivo recibido no cubre el total de la venta.')
+	      return
+	    }
 
-    const creditClientName =
-      payments.find((payment) => payment.isCredit)?.clientName ||
-      (creditEnabled ? creditName.trim() : '')
-    const confirmed = await confirm({
-      title: 'Confirmar venta',
-      message: creditClientName
-        ? `¿Registrar la venta por ${formatBaseMoney(subtotal)} con crédito para ${creditClientName}?`
-        : `¿Registrar la venta por ${formatBaseMoney(subtotal)}?`,
-      confirmLabel: 'Sí, confirmar venta',
-      tone: 'success',
-    })
-    if (!confirmed) return
+	    if (!user || !canConfirm) return
 
     setSubmitting(true)
     setError('')
@@ -1295,11 +1631,20 @@ export function PosPage() {
 
     const product = pendingProduct
     const saleMode = pendingSaleMode
-    const canEnterAmount =
-      saleMode === 'retail' && (product.soldBy === 'weight' || product.type === 'charcuteria')
+    const canEnterAmount = saleMode === 'retail' && productAllowsAmountEntry(product)
+    const baseUnitPrice = saleMode === 'bundle' ? product.bundleSalePrice ?? 0 : product.salePrice
+    const customUnitPrice = parseMoneyInput(pendingUnitPrice)
+    const effectiveUnitPrice = customUnitPrice > 0 ? customUnitPrice : baseUnitPrice
     const enteredAmount = canEnterAmount && pendingEntryMode === 'amount' ? parseMoneyInput(pendingAmount) : undefined
     const quantity =
-      enteredAmount === undefined ? Number(pendingQuantity) : Number((enteredAmount / product.salePrice).toFixed(3))
+      enteredAmount === undefined
+        ? Number(pendingQuantity)
+        : Number((enteredAmount / effectiveUnitPrice).toFixed(3))
+
+    if (!effectiveUnitPrice || effectiveUnitPrice <= 0) {
+      setPendingError('Ingresa un precio válido para este producto.')
+      return
+    }
 
     if (enteredAmount !== undefined && (!enteredAmount || enteredAmount <= 0)) {
       setPendingError('Ingresa un importe válido.')
@@ -1311,17 +1656,20 @@ export function PosPage() {
       return
     }
 
-    if (!canAddProduct(product, cart, quantity, saleMode)) {
+    const stockCart = editingCartKey ? cart.filter((item) => item.key !== editingCartKey) : cart
+    if (!canAddProduct(product, stockCart, quantity, saleMode)) {
       const unit = saleMode === 'bundle' ? 'al mayor' : product.unitLabel
       setPendingError(`Stock insuficiente. Disponible: ${product.stock} ${product.unitLabel} (${unit}).`)
       return
     }
 
-    addProductToCart(product, quantity, saleMode, enteredAmount)
+    addProductToCart(product, quantity, saleMode, enteredAmount, effectiveUnitPrice, editingCartKey ?? undefined)
     setPendingProduct(null)
+    setEditingCartKey(null)
     setPendingEntryMode('quantity')
     setPendingQuantity('1')
     setPendingAmount('')
+    setPendingUnitPrice('')
     setPendingError('')
   }
 
@@ -1362,6 +1710,23 @@ export function PosPage() {
               {syncingOfflineSales ? 'Sincronizando...' : 'Sincronizar'}
             </button>
           </div>
+        )}
+
+        {keyboardShortcuts.some((shortcut) => shortcut.active) && (
+          <section className="pos-shortcuts-strip" aria-label="Atajos de teclado">
+            <div className="pos-shortcuts-strip-header">
+              <strong>Atajos</strong>
+              <span>Ctrl + tecla</span>
+            </div>
+            <div className="pos-shortcuts-panel">
+              {keyboardShortcuts.filter((shortcut) => shortcut.active).map((shortcut) => (
+                <div key={shortcut.id} className="pos-shortcut-row">
+                  <kbd>{shortcut.keys}</kbd>
+                  <span>{shortcut.label}</span>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         <section className="pos-open-sales" aria-label="Ventas abiertas">
@@ -1426,6 +1791,7 @@ export function PosPage() {
             tone="green"
           >
             <ProductSearchField
+              ref={searchFieldRef}
               value={searchQuery}
               products={products}
               onChange={setSearchQuery}
@@ -1439,6 +1805,30 @@ export function PosPage() {
             >
               + Producto rápido
             </button>
+            {activeCombos.length > 0 && (
+              <div className="pos-combos-panel">
+                <div className="pos-combos-header">
+                  <strong>Combos disponibles</strong>
+                  <span>{activeCombos.length}</span>
+                </div>
+                <div className="pos-combos-list">
+                  {activeCombos.map((combo) => (
+                    <button
+                      key={combo.id}
+                      type="button"
+                      className="pos-combo-card"
+                      onClick={() => addComboToCart(combo)}
+                    >
+                      <span>{combo.name}</span>
+                      <strong>{formatBaseMoney(combo.price)}</strong>
+                      <small>
+                        {combo.productName} · {combo.quantity} {combo.unitLabel}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </PosSection>
 
           <PosSection
@@ -1451,6 +1841,8 @@ export function PosPage() {
               items={cart}
               onIncrease={handleIncrease}
               onDecrease={handleDecrease}
+              onToggleBundle={handleToggleCartBundle}
+              onEdit={handleEditCartItem}
               onRemove={handleRemove}
               subtotal={subtotal}
             />
@@ -1471,9 +1863,12 @@ export function PosPage() {
               selectedCurrencyCode={selectedCurrencyCode}
               conversionRateLabel={conversionRateLabel}
               paymentEquivalentBase={paymentEquivalentBase}
-              selectedMethodId={selectedMethodId}
-              paymentAmount={paymentAmount}
-              paymentReference={paymentReference}
+	              selectedMethodId={selectedMethodId}
+	              paymentAmount={paymentAmount}
+	              cashReceivedAmount={cashReceivedAmount}
+	              cashChangeAmount={cashChangeAmount}
+	              showCashReceived={isCashOnlyPayment}
+	              paymentReference={paymentReference}
               payments={payments}
               totalDue={subtotal}
               remaining={remaining}
@@ -1492,10 +1887,11 @@ export function PosPage() {
               onAddCreditPayment={mixedPayment ? handleAddInlineCredit : undefined}
               creditSubmitting={creditSubmitting}
               onMixedPaymentChange={handleMixedPaymentChange}
-              onCurrencyChange={setSelectedCurrencyCode}
-              onMethodChange={setSelectedMethodId}
-              onAmountChange={setPaymentAmount}
-              onReferenceChange={setPaymentReference}
+	              onCurrencyChange={handleCurrencyChange}
+	              onMethodChange={handlePaymentMethodChange}
+	              onAmountChange={setPaymentAmount}
+	              onCashReceivedChange={setCashReceivedAmount}
+	              onReferenceChange={setPaymentReference}
               onUseTotalAmount={handlePayExactRemaining}
               onAddPayment={handleAddPayment}
               onRemovePayment={handleRemovePayment}
@@ -1518,13 +1914,19 @@ export function PosPage() {
           entryMode={pendingEntryMode}
           quantity={pendingQuantity}
           amount={pendingAmount}
+          unitPrice={pendingUnitPrice}
           error={pendingError}
-          onSaleModeChange={setPendingSaleMode}
+          onSaleModeChange={handlePendingSaleModeChange}
           onEntryModeChange={setPendingEntryMode}
           onQuantityChange={setPendingQuantity}
           onAmountChange={setPendingAmount}
+          onUnitPriceChange={setPendingUnitPrice}
           onConfirm={confirmPendingProduct}
-          onClose={() => setPendingProduct(null)}
+          onClose={() => {
+            setPendingProduct(null)
+            setEditingCartKey(null)
+          }}
+          confirmLabel={editingCartKey ? 'Guardar cambios' : 'Agregar al carrito'}
         />
       )}
 

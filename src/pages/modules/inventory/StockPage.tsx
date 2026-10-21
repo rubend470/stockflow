@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AppLayout } from '../../../components/layout/AppLayout'
+import { BarcodeScannerButton } from '../../../components/ui/BarcodeScannerButton'
 import { TablePagination } from '../../../components/ui/TablePagination'
 import { usePagination } from '../../../hooks/usePagination'
 import { useAuth } from '../../../context/AuthContext'
@@ -19,7 +20,7 @@ import {
   getProductSaleSummary,
 } from '../../../utils/productUnits'
 
-const typeLabels = {
+const typeLabels: Record<string, string> = {
   abasto: 'Abasto',
   charcuteria: 'Charcutería',
 }
@@ -108,12 +109,15 @@ export function StockPage() {
         </div>
 
         <div className="inventory-filters">
-          <input
-            type="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar producto..."
-          />
+          <div className="barcode-input-row inventory-search-scan-row">
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar producto o código..."
+            />
+            <BarcodeScannerButton label="Cámara" onDetected={setSearch} />
+          </div>
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
@@ -163,7 +167,7 @@ export function StockPage() {
                         <strong>{product.name}</strong>
                         {product.barcode && <span className="inventory-subtext">{product.barcode}</span>}
                       </td>
-                      <td>{typeLabels[product.type]}</td>
+                      <td>{typeLabels[product.type] ?? product.type}</td>
                       <td>{getProductSaleSummary(product)}</td>
                       <td>{formatStockSummary(product)}</td>
                       <td>{formatMinStockSummary(product)}</td>

@@ -37,6 +37,8 @@ export const navigation: NavItem[] = [
     children: [
       { id: 'products', label: 'Productos', path: '/inventario/productos', icon: 'products' },
       { id: 'categories', label: 'Categorías', path: '/inventario/categorias', icon: 'products', roles: ['super_admin', 'admin'] },
+      { id: 'product-types', label: 'Tipos de producto', path: '/inventario/tipos-producto', icon: 'products', roles: ['super_admin', 'admin'] },
+      { id: 'offers', label: 'Combos y promociones', path: '/inventario/ofertas', icon: 'sales', roles: ['super_admin', 'admin'] },
       { id: 'add-product', label: 'Ingresar producto', path: '/inventario/productos/nuevo', icon: 'products', roles: ['super_admin', 'admin'] },
       {
         id: 'pending-invoices',
@@ -68,6 +70,8 @@ export const navigation: NavItem[] = [
     roles: ['super_admin', 'admin'],
     children: [
       { id: 'expenses', label: 'Control de gastos', path: '/finanzas/gastos', icon: 'expenses', roles: ['super_admin', 'admin'] },
+      { id: 'cash-movements', label: 'Entradas y salidas', path: '/finanzas/entradas-salidas', icon: 'finance', roles: ['super_admin', 'admin'] },
+      { id: 'cash-opening', label: 'Base de caja', path: '/finanzas/base-caja', icon: 'payments', roles: ['super_admin', 'admin'] },
       { id: 'currencies', label: 'Monedas y tasas', path: '/finanzas/monedas', icon: 'currency', roles: ['super_admin', 'admin'] },
       { id: 'payments', label: 'Formas de pago', path: '/finanzas/pagos', icon: 'payments', roles: ['super_admin', 'admin'] },
     ],
@@ -79,6 +83,8 @@ export const navigation: NavItem[] = [
     roles: ['super_admin', 'admin'],
     children: [
       { id: 'users', label: 'Usuarios', path: '/admin/usuarios', icon: 'users', roles: ['super_admin'] },
+      { id: 'businesses', label: 'Empresas', path: '/admin/empresas', icon: 'admin', roles: ['super_admin'] },
+      { id: 'keyboard-shortcuts', label: 'Atajos de teclado', path: '/admin/atajos', icon: 'settings', roles: ['super_admin', 'admin'] },
       { id: 'settings', label: 'Configuración', path: '/admin/configuracion', icon: 'settings', roles: ['super_admin', 'admin'] },
     ],
   },

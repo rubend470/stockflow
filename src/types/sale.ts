@@ -16,7 +16,14 @@ export interface CartItem {
   stockQuantity: number
   unitCost: number
   unitPrice: number
+  originalUnitPrice?: number
+  manualUnitPrice?: boolean
+  saleLossPerUnit?: number
   enteredAmount?: number
+  offerId?: string
+  offerType?: 'combo' | 'promotion'
+  offerName?: string
+  discountAmount?: number
   lineCost: number
   lineRevenue: number
   lineProfit: number
@@ -94,7 +101,16 @@ export interface SaleItem {
   stockQuantity: number
   unitCost: number
   unitPrice: number
+  originalUnitPrice?: number
+  manualUnitPrice?: boolean
+  saleLossPerUnit?: number
   enteredAmount?: number
+  offerId?: string
+  offerType?: 'combo' | 'promotion'
+  offerName?: string
+  discountAmount?: number
+  stockCategoryId?: string
+  stockCategoryName?: string
   lineCost: number
   lineRevenue: number
   lineProfit: number

@@ -19,15 +19,20 @@ const routePermissionEntries: Array<[string, string]> = [
   ['/inventario/productos', 'products'],
   ['/inventario/productos/nuevo', 'add-product'],
   ['/inventario/categorias', 'categories'],
+  ['/inventario/tipos-producto', 'product-types'],
+  ['/inventario/ofertas', 'offers'],
   ['/inventario/stock', 'products'],
   ['/inventario/movimientos', 'waste'],
   ['/inventario/mermas', 'waste'],
   ['/ventas/facturas-pendientes', 'pending-invoices'],
   ['/inventario/proveedores', 'suppliers'],
   ['/finanzas/gastos', 'expenses'],
+  ['/finanzas/entradas-salidas', 'cash-movements'],
+  ['/finanzas/base-caja', 'cash-opening'],
   ['/finanzas/monedas', 'currencies'],
   ['/finanzas/pagos', 'payments'],
   ['/admin/usuarios', 'users'],
+  ['/admin/atajos', 'keyboard-shortcuts'],
   ['/admin/configuracion', 'settings'],
 ]
 
@@ -181,6 +186,9 @@ export function userCanViewCost(
     'suppliers',
     'add-product',
     'categories',
+    'product-types',
+    'offers',
+    'keyboard-shortcuts',
   ])
 }
 

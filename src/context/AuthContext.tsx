@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { auth } from '../lib/firebase'
+import { setActiveBusinessId } from '../lib/tenantScope'
 import { getUserProfile, logout as logoutUser, mapFirebaseUser } from '../services/authService'
 import type { AppUser } from '../types/user'
 
@@ -27,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!firebaseUser) {
+        setActiveBusinessId()
         setUser(null)
         setLoading(false)
         return
@@ -36,12 +38,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (profile && !profile.active) {
         await logoutUser()
+        setActiveBusinessId()
         setUser(null)
         setLoading(false)
         return
       }
 
-      setUser(mapFirebaseUser(firebaseUser, profile))
+      const mappedUser = mapFirebaseUser(firebaseUser, profile)
+      setActiveBusinessId(mappedUser.currentBusinessId)
+      setUser(mappedUser)
       setLoading(false)
     })
 
@@ -51,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function refreshUser() {
     const firebaseUser = auth.currentUser
     if (!firebaseUser) {
+      setActiveBusinessId()
       setUser(null)
       return
     }
@@ -58,11 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const profile = await getUserProfile(firebaseUser.uid)
     if (profile && !profile.active) {
       await logoutUser()
+      setActiveBusinessId()
       setUser(null)
       return
     }
 
-    setUser(mapFirebaseUser(firebaseUser, profile))
+    const mappedUser = mapFirebaseUser(firebaseUser, profile)
+    setActiveBusinessId(mappedUser.currentBusinessId)
+    setUser(mappedUser)
   }
 
   const value = useMemo(

@@ -83,7 +83,7 @@ export interface LowStockRow {
   status: 'low' | 'out'
 }
 
-const categoryLabels: Record<ProductType, string> = {
+const categoryLabels: Record<string, string> = {
   abasto: 'Abasto',
   charcuteria: 'Charcutería',
 }
@@ -407,7 +407,7 @@ export function getSalesByCategoryFromItems(
       const category = productTypeMap.get(item.productId) ?? 'abasto'
       const current = totals.get(category) ?? {
         category,
-        categoryLabel: categoryLabels[category],
+        categoryLabel: categoryLabels[category] ?? category,
         quantity: 0,
         revenue: 0,
         profit: 0,

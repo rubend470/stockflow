@@ -1,5 +1,4 @@
 import {
-  collection,
   deleteDoc,
   doc,
   getDocs,
@@ -16,6 +15,7 @@ import {
   DEFAULT_BASE_CURRENCY_SYMBOL,
 } from '../constants/currency'
 import { db } from '../lib/firebase'
+import { tenantCollectionRef, tenantDocumentRef } from '../lib/tenantFirestore'
 import type {
   Currency,
   CurrencyFormInput,
@@ -93,7 +93,7 @@ async function isCurrencyCodeTaken(code: string, excludeId?: string) {
   if (!trimmed) return false
 
   const snapshot = await getDocs(
-    query(collection(db, 'currencies'), where('code', '==', trimmed)),
+    query(tenantCollectionRef('currencies'), where('code', '==', trimmed)),
   )
 
   return snapshot.docs.some((item) => item.id !== excludeId)
@@ -104,7 +104,7 @@ async function isPaymentCodeTaken(code: string, excludeId?: string) {
   if (!trimmed) return false
 
   const snapshot = await getDocs(
-    query(collection(db, 'payment_methods'), where('code', '==', trimmed)),
+    query(tenantCollectionRef('payment_methods'), where('code', '==', trimmed)),
   )
 
   return snapshot.docs.some((item) => item.id !== excludeId)
@@ -143,7 +143,7 @@ async function clearOtherDefaultPaymentMethods(excludeId: string) {
 
   methods.forEach((method) => {
     if (method.id !== excludeId && method.isDefaultForSales) {
-      batch.update(doc(db, 'payment_methods', method.id), {
+      batch.update(tenantDocumentRef('payment_methods', method.id), {
         isDefaultForSales: false,
         updatedAt: serverTimestamp(),
       })
@@ -163,7 +163,7 @@ async function getNextPaymentSortOrder() {
 }
 
 export async function listCurrencies(): Promise<Currency[]> {
-  const snapshot = await getDocs(collection(db, 'currencies'))
+  const snapshot = await getDocs(tenantCollectionRef('currencies'))
   return snapshot.docs
     .map((item) => mapCurrency(item.id, item.data()))
     .filter((currency) => currency.active)
@@ -171,14 +171,14 @@ export async function listCurrencies(): Promise<Currency[]> {
 }
 
 export async function listAllCurrencies(): Promise<Currency[]> {
-  const snapshot = await getDocs(collection(db, 'currencies'))
+  const snapshot = await getDocs(tenantCollectionRef('currencies'))
   return snapshot.docs
     .map((item) => mapCurrency(item.id, item.data()))
     .sort((a, b) => Number(b.isBase) - Number(a.isBase) || a.code.localeCompare(b.code))
 }
 
 export async function listPaymentMethods(): Promise<PaymentMethod[]> {
-  const snapshot = await getDocs(collection(db, 'payment_methods'))
+  const snapshot = await getDocs(tenantCollectionRef('payment_methods'))
   return snapshot.docs
     .map((item) => mapPaymentMethod(item.id, item.data()))
     .filter((method) => method.active)
@@ -186,14 +186,14 @@ export async function listPaymentMethods(): Promise<PaymentMethod[]> {
 }
 
 export async function listAllPaymentMethods(): Promise<PaymentMethod[]> {
-  const snapshot = await getDocs(collection(db, 'payment_methods'))
+  const snapshot = await getDocs(tenantCollectionRef('payment_methods'))
   return snapshot.docs
     .map((item) => mapPaymentMethod(item.id, item.data()))
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
 }
 
 export async function listLatestExchangeRates(): Promise<ExchangeRate[]> {
-  const snapshot = await getDocs(collection(db, 'exchange_rates'))
+  const snapshot = await getDocs(tenantCollectionRef('exchange_rates'))
   const rates = new Map<string, ExchangeRate>()
 
   snapshot.docs.forEach((item) => {
@@ -224,13 +224,13 @@ export async function createCurrency(input: CurrencyFormInput, userId: string) {
   }
 
   const batch = writeBatch(db)
-  const ref = doc(collection(db, 'currencies'))
+  const ref = doc(tenantCollectionRef('currencies'))
 
   if (input.isBase) {
     const existing = await listAllCurrencies()
     existing.forEach((currency) => {
       if (currency.isBase) {
-        batch.update(doc(db, 'currencies', currency.id), { isBase: false, updatedAt: serverTimestamp() })
+        batch.update(tenantDocumentRef('currencies', currency.id), { isBase: false, updatedAt: serverTimestamp() })
       }
     })
   }
@@ -267,12 +267,12 @@ export async function updateCurrency(id: string, input: CurrencyFormInput) {
     const existing = await listAllCurrencies()
     existing.forEach((currency) => {
       if (currency.id !== id && currency.isBase) {
-        batch.update(doc(db, 'currencies', currency.id), { isBase: false, updatedAt: serverTimestamp() })
+        batch.update(tenantDocumentRef('currencies', currency.id), { isBase: false, updatedAt: serverTimestamp() })
       }
     })
   }
 
-  batch.update(doc(db, 'currencies', id), {
+  batch.update(tenantDocumentRef('currencies', id), {
     code,
     name: input.name.trim(),
     symbol: input.symbol.trim(),
@@ -302,7 +302,7 @@ export async function deleteCurrency(id: string) {
     throw new Error('Esta moneda está asociada a formas de pago. Quítala de los métodos antes de eliminar.')
   }
 
-  await deleteDoc(doc(db, 'currencies', id))
+  await deleteDoc(tenantDocumentRef('currencies', id))
 }
 
 export async function createPaymentMethod(input: PaymentMethodFormInput, userId: string) {
@@ -317,7 +317,7 @@ export async function createPaymentMethod(input: PaymentMethodFormInput, userId:
   const code = await buildPaymentCode(input.name)
   const sortOrder = await getNextPaymentSortOrder()
 
-  const ref = doc(collection(db, 'payment_methods'))
+  const ref = doc(tenantCollectionRef('payment_methods'))
   await setDoc(ref, {
     name: input.name.trim(),
     code,
@@ -347,7 +347,7 @@ export async function updatePaymentMethod(id: string, input: PaymentMethodFormIn
     throw new Error('Selecciona al menos una moneda permitida.')
   }
 
-  await updateDoc(doc(db, 'payment_methods', id), {
+  await updateDoc(tenantDocumentRef('payment_methods', id), {
     name: input.name.trim(),
     active: input.active,
     allowedCurrencies: input.allowedCurrencies,
@@ -362,7 +362,7 @@ export async function updatePaymentMethod(id: string, input: PaymentMethodFormIn
 }
 
 export async function deletePaymentMethod(id: string) {
-  await deleteDoc(doc(db, 'payment_methods', id))
+  await deleteDoc(tenantDocumentRef('payment_methods', id))
 }
 
 function validateExchangeRateInput(input: ExchangeRateFormInput) {
@@ -396,7 +396,7 @@ export async function createExchangeRate(input: ExchangeRateFormInput, userId: s
     throw new Error('Ya existe una tasa para este par. Edítala desde la lista.')
   }
 
-  const ref = doc(collection(db, 'exchange_rates'))
+  const ref = doc(tenantCollectionRef('exchange_rates'))
   await setDoc(ref, {
     fromCurrency,
     toCurrency,
@@ -424,7 +424,7 @@ export async function updateExchangeRate(id: string, input: ExchangeRateFormInpu
     throw new Error('Ya existe otra tasa con este par de monedas.')
   }
 
-  await updateDoc(doc(db, 'exchange_rates', id), {
+  await updateDoc(tenantDocumentRef('exchange_rates', id), {
     fromCurrency,
     toCurrency,
     fromAmount: input.fromAmount,
@@ -437,20 +437,20 @@ export async function updateExchangeRate(id: string, input: ExchangeRateFormInpu
 }
 
 export async function deleteExchangeRate(id: string) {
-  await deleteDoc(doc(db, 'exchange_rates', id))
+  await deleteDoc(tenantDocumentRef('exchange_rates', id))
 }
 
 export async function ensureFinanceDefaults(userId: string) {
   const [currencySnap, methodsSnap] = await Promise.all([
-    getDocs(collection(db, 'currencies')),
-    getDocs(collection(db, 'payment_methods')),
+    getDocs(tenantCollectionRef('currencies')),
+    getDocs(tenantCollectionRef('payment_methods')),
   ])
 
   const batch = writeBatch(db)
   let hasWrites = false
 
   if (currencySnap.empty) {
-    const copRef = doc(collection(db, 'currencies'))
+    const copRef = doc(tenantCollectionRef('currencies'))
     batch.set(copRef, {
       code: DEFAULT_BASE_CURRENCY_CODE,
       name: DEFAULT_BASE_CURRENCY_NAME,
@@ -461,7 +461,7 @@ export async function ensureFinanceDefaults(userId: string) {
       createdBy: userId,
     })
 
-    const usdRef = doc(collection(db, 'currencies'))
+    const usdRef = doc(tenantCollectionRef('currencies'))
     batch.set(usdRef, {
       code: 'USD',
       name: 'Dólar',
@@ -472,7 +472,7 @@ export async function ensureFinanceDefaults(userId: string) {
       createdBy: userId,
     })
 
-    const usdToCopRef = doc(collection(db, 'exchange_rates'))
+    const usdToCopRef = doc(tenantCollectionRef('exchange_rates'))
     batch.set(usdToCopRef, {
       fromCurrency: 'USD',
       toCurrency: DEFAULT_BASE_CURRENCY_CODE,
@@ -485,7 +485,7 @@ export async function ensureFinanceDefaults(userId: string) {
       createdBy: userId,
     })
 
-    const copToUsdRef = doc(collection(db, 'exchange_rates'))
+    const copToUsdRef = doc(tenantCollectionRef('exchange_rates'))
     batch.set(copToUsdRef, {
       fromCurrency: DEFAULT_BASE_CURRENCY_CODE,
       toCurrency: 'USD',
@@ -529,7 +529,7 @@ export async function ensureFinanceDefaults(userId: string) {
     ]
 
     defaults.forEach((method) => {
-      const ref = doc(collection(db, 'payment_methods'))
+      const ref = doc(tenantCollectionRef('payment_methods'))
       batch.set(ref, {
         ...method,
         active: true,
@@ -551,7 +551,7 @@ export async function ensureFinanceDefaults(userId: string) {
     if (cop && markedBase?.code !== DEFAULT_BASE_CURRENCY_CODE) {
       currencies.forEach((currency) => {
         if (currency.isBase && currency.id !== cop.id) {
-          batch.update(doc(db, 'currencies', currency.id), {
+          batch.update(tenantDocumentRef('currencies', currency.id), {
             isBase: false,
             updatedAt: serverTimestamp(),
           })
@@ -560,7 +560,7 @@ export async function ensureFinanceDefaults(userId: string) {
       })
 
       if (!cop.isBase) {
-        batch.update(doc(db, 'currencies', cop.id), {
+        batch.update(tenantDocumentRef('currencies', cop.id), {
           isBase: true,
           updatedAt: serverTimestamp(),
         })
@@ -568,7 +568,7 @@ export async function ensureFinanceDefaults(userId: string) {
       }
 
       batch.set(
-        doc(db, 'settings', 'app'),
+        tenantDocumentRef('settings', 'app'),
         {
           baseCurrency: DEFAULT_BASE_CURRENCY_CODE,
           updatedAt: serverTimestamp(),
@@ -579,7 +579,7 @@ export async function ensureFinanceDefaults(userId: string) {
     }
 
     if (!cop) {
-      const copRef = doc(collection(db, 'currencies'))
+      const copRef = doc(tenantCollectionRef('currencies'))
       batch.set(copRef, {
         code: DEFAULT_BASE_CURRENCY_CODE,
         name: DEFAULT_BASE_CURRENCY_NAME,
@@ -591,7 +591,7 @@ export async function ensureFinanceDefaults(userId: string) {
       })
       currencies.forEach((currency) => {
         if (currency.isBase) {
-          batch.update(doc(db, 'currencies', currency.id), {
+          batch.update(tenantDocumentRef('currencies', currency.id), {
             isBase: false,
             updatedAt: serverTimestamp(),
           })
