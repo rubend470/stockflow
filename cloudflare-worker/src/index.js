@@ -1,5 +1,5 @@
-const GOOGLE_JWKS_URL =
-  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'
+import { verifyFirebaseToken } from './firebaseToken.js'
+
 const MAX_SIGNING_REQUEST_LENGTH = 100_000
 
 function jsonResponse(body, status, origin, allowedOrigins) {
@@ -18,67 +18,12 @@ function jsonResponse(body, status, origin, allowedOrigins) {
   return new Response(JSON.stringify(body), { status, headers })
 }
 
-function decodeBase64Url(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
-  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0))
-}
-
-function decodeJwtPart(value) {
-  return JSON.parse(new TextDecoder().decode(decodeBase64Url(value)))
-}
-
 function pemToBytes(pem) {
   const base64 = pem
     .replace('-----BEGIN PRIVATE KEY-----', '')
     .replace('-----END PRIVATE KEY-----', '')
     .replace(/\s/g, '')
   return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
-}
-
-async function verifyFirebaseToken(token, projectId) {
-  const parts = token.split('.')
-  if (parts.length !== 3) throw new Error('Token inválido.')
-
-  const header = decodeJwtPart(parts[0])
-  const payload = decodeJwtPart(parts[1])
-  if (header.alg !== 'RS256' || typeof header.kid !== 'string') {
-    throw new Error('Firma de token inválida.')
-  }
-
-  const response = await fetch(GOOGLE_JWKS_URL, {
-    cf: { cacheEverything: true, cacheTtl: 3_600 },
-  })
-  if (!response.ok) throw new Error('No se pudieron validar las credenciales.')
-
-  const keys = await response.json()
-  const jwk = keys[header.kid]
-  if (!jwk) throw new Error('Certificado de autenticación desconocido.')
-
-  const publicKey = await crypto.subtle.importKey(
-    'jwk',
-    jwk,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['verify'],
-  )
-  const validSignature = await crypto.subtle.verify(
-    'RSASSA-PKCS1-v1_5',
-    publicKey,
-    decodeBase64Url(parts[2]),
-    new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
-  )
-
-  const now = Math.floor(Date.now() / 1_000)
-  const validClaims =
-    payload.aud === projectId &&
-    payload.iss === `https://securetoken.google.com/${projectId}` &&
-    typeof payload.sub === 'string' &&
-    payload.sub.length > 0 &&
-    payload.exp > now &&
-    payload.iat <= now
-
-  if (!validSignature || !validClaims) throw new Error('Sesión inválida o vencida.')
 }
 
 async function signRequest(dataToSign, privateKeyPem) {
